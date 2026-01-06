@@ -7,13 +7,13 @@ pragma solidity ^0.8.30;
 abstract contract GemStepStorage {
     // ====================== Roles ====================== //
     // Keep these public: tests/tooling often read them directly.
-    bytes32 internal constant PAUSER_ROLE           = keccak256("PAUSER_ROLE");
-    bytes32 internal constant MINTER_ROLE           = keccak256("MINTER_ROLE");
-    bytes32 internal constant SIGNER_ROLE           = keccak256("SIGNER_ROLE");
-    bytes32 internal constant PARAMETER_ADMIN_ROLE  = keccak256("PARAMETER_ADMIN");
-    bytes32 internal constant EMERGENCY_ADMIN_ROLE  = keccak256("EMERGENCY_ADMIN");
-    bytes32 internal constant UPGRADER_ROLE         = keccak256("UPGRADER_ROLE");
-    bytes32 internal constant API_SIGNER_ROLE       = keccak256("API_SIGNER_ROLE");
+    bytes32 public constant PAUSER_ROLE           = keccak256("PAUSER_ROLE");
+    bytes32 public constant MINTER_ROLE           = keccak256("MINTER_ROLE");
+    bytes32 public constant SIGNER_ROLE           = keccak256("SIGNER_ROLE");
+    bytes32 public constant PARAMETER_ADMIN_ROLE  = keccak256("PARAMETER_ADMIN");
+    bytes32 public constant EMERGENCY_ADMIN_ROLE  = keccak256("EMERGENCY_ADMIN");
+    bytes32 public constant UPGRADER_ROLE         = keccak256("UPGRADER_ROLE");
+    bytes32 public constant API_SIGNER_ROLE       = keccak256("API_SIGNER_ROLE");
 
     // ====================== EIP-712 Types =============== //
     bytes32 internal constant STEPLOG_TYPEHASH = keccak256(
@@ -29,7 +29,7 @@ abstract contract GemStepStorage {
     // ====================== Centralized Domain/Payload Constants ====================== //
     string  public constant DOMAIN_NAME             = "GemStep";
     string  public constant DOMAIN_VERSION          = "1.0.0"; // bump only to intentionally break old signatures
-    string  internal constant DEFAULT_PAYLOAD_VERSION = "1.0.0";
+    string  public constant DEFAULT_PAYLOAD_VERSION = "1.0.0";
 
     // ====================== Token & Policy Constants ====================== //
     uint8    public constant DECIMALS = 18;
@@ -39,58 +39,58 @@ abstract contract GemStepStorage {
     uint256  internal constant MAX_REWARD_RATE = 10 * 10 ** DECIMALS;
     uint256  internal constant PERCENTAGE_BASE = 100;
 
-    uint256  internal constant DEFAULT_SIGNATURE_VALIDITY = 10 minutes;
-    uint256  internal constant MAX_SIGNATURE_VALIDITY     = 30 minutes;
+    uint256  internal constant DEFAULT_SIGNATURE_VALIDITY = 1 hours;
+    uint256  internal constant MAX_SIGNATURE_VALIDITY     = 7 days;
 
     uint256  internal constant MIN_SOURCE_LENGTH = 3;
     uint256  internal constant MAX_SOURCE_LENGTH = 20;
 
-    uint256  internal constant EMERGENCY_DELAY = 2 days;
+    uint256  public constant EMERGENCY_DELAY = 2 days;
 
     uint256  internal constant MIN_BURN_AMOUNT   = 1 * 10 ** DECIMALS;
     uint256  internal constant MIN_REWARD_AMOUNT = 1 * 10 ** DECIMALS;
 
-    uint256  internal constant MONTHLY_MINT_LIMIT = 200_000 * 10 ** DECIMALS;
+    uint256  public constant MONTHLY_MINT_LIMIT = 200_000 * 10 ** DECIMALS;
 
     uint256  internal constant MAX_BATCH_SIGNERS        = 20;
     uint256  internal constant MAX_SIGNATURE_CLEARANCE  = 50;
     uint256  internal constant MAX_BATCH_SOURCES        = 10;
 
     uint256  internal constant REWARD_RATE_BASE    = 1 * 10 ** DECIMALS;
-    uint256  internal constant SECONDS_PER_MONTH   = 30 days;
+    uint256  public constant SECONDS_PER_MONTH   = 30 days;
 
-    uint256  internal constant PENALTY_PERCENT         = 30;       // %
-    uint256  internal constant MAX_STEPS_PER_DAY       = 10_000;
-    uint256  internal constant MIN_SUBMISSION_INTERVAL = 1 hours;
-    uint256  internal constant SUSPENSION_DURATION     = 30 days;
+    uint256  public constant PENALTY_PERCENT         = 30;       // %
+    uint256  public constant MAX_STEPS_PER_DAY       = 10_000;
+    uint256  public constant MIN_SUBMISSION_INTERVAL = 1 hours;
+    uint256  public constant SUSPENSION_DURATION     = 30 days;
 
-    uint256  internal constant ANOMALY_THRESHOLD        = 5;       // 5x average (default)
+    uint256  public constant ANOMALY_THRESHOLD        = 5;       // 5x average (default)
     uint256  internal constant MIN_AVERAGE_FOR_ANOMALY  = 500;     // scaled avg ≥500 (~5 steps if ×100 scaling)
-    uint256  internal constant GRACE_PERIOD             = 7 days;  // grace period for new users
+    uint256  public constant GRACE_PERIOD             = 7 days;  // grace period for new users
     uint256  internal constant MAX_PROOF_LENGTH         = 32;
     uint256  internal constant MAX_VERSION_LENGTH       = 32;
 
-    uint256  internal constant MIN_STAKE_PER_STEP     = 0.0000001 ether;
-    uint256  internal constant MAX_STAKE_PER_STEP     = 0.001 ether;
-    uint256  internal constant STAKE_ADJUST_COOLDOWN  = 1 days;
+    uint256  public constant MIN_STAKE_PER_STEP     = 0.0000001 ether;
+    uint256  public constant MAX_STAKE_PER_STEP     = 0.001 ether;
+    uint256  public constant STAKE_ADJUST_COOLDOWN  = 1 days;
     uint256  internal constant TARGET_STAKE_PERCENT   = 10; // 10% of token value (in ETH)
 
     // ====================== State ====================== //
-    uint256 internal burnFee;
-    uint256 internal rewardRate;
-    uint256 internal stepLimit;
-    uint256 internal signatureValidityPeriod;
+    uint256 public burnFee;
+    uint256 public rewardRate;
+    uint256 public stepLimit;
+    uint256 public signatureValidityPeriod;
 
-    bool     internal emergencyWithdrawEnabled;
-    uint256  internal emergencyWithdrawUnlockTime;
+    bool     public emergencyWithdrawEnabled;
+    uint256  public emergencyWithdrawUnlockTime;
 
     uint256 internal monthlyMintLimit;
-    uint256 internal currentMonthMinted;
+    uint256 public currentMonthMinted;
     uint256 internal currentMonth;
     uint256 internal lastMonthUpdate;
-    uint256 internal distributedTotal;
-    uint256 internal currentMonthlyCap;
-    uint256 internal halvingCount;
+    uint256 public distributedTotal;
+    uint256 public currentMonthlyCap;
+    uint256 public halvingCount;
 
     address internal initialAdmin;
     bool    internal adminRoleTransferred;
@@ -103,11 +103,12 @@ abstract contract GemStepStorage {
     address internal l1Validator;
     address payable internal arbEthBridge;
 
-    address public priceOracle; // store address only; cast where used
+    // Make internal; you already expose via GS_Views.getPriceOracle()
+    address internal priceOracle; // store address only; cast where used
 
-    uint256 internal currentStakePerStep;
-    uint256 internal lastStakeAdjustment;
-    bool    internal stakeParamsLocked;
+    uint256 public currentStakePerStep;
+    uint256 public lastStakeAdjustment;
+    bool    public stakeParamsLocked;
 
     // Mappings
     mapping(string => bool) internal validSources;
@@ -148,7 +149,8 @@ abstract contract GemStepStorage {
     mapping(address => uint256) internal userFirstSubmission; // track first submission
 
     /// @notice Pure storage + constants + events + structs for GemStep.
-    uint256 internal anomalyThreshold;
+    /// IMPORTANT: Order preserved to keep storage layout identical across upgrades.
+    uint256 public anomalyThreshold;
 
     // Version controls
     mapping(bytes32 => bool) internal supportedAttestationVersions;        // normalized hash -> allowed
@@ -215,6 +217,7 @@ abstract contract GemStepStorage {
     event Trusted1271Set(address indexed contractAddr, bool trusted);
     event AttestationNonceRequirementSet(string normVersion, bool required);
 
+
     // New explicit version events
     event PayloadVersionAdded(string version);
     event PayloadVersionDeprecated(string version, uint256 deprecatesAt);
@@ -251,6 +254,6 @@ abstract contract GemStepStorage {
     // Placed here for maximum storage layout stability
     address internal l1Governance;
 
-    // Storage gap for future upgrades
+    // Storage gap for future upgrades (reduced by 1 to account for new var: l1Governance)
     uint256[40] private __gap;
 }

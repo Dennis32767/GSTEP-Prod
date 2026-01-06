@@ -9,6 +9,7 @@ import "./token/modules/GS_MintingAndSupply.sol";
 import "./token/modules/GS_EmergencyAndL2.sol";
 import "./token/modules/GS_Admin.sol";
 import "./token/modules/GS_Views.sol";
+import "./token/modules/GS_TestHooks.sol";
 
 contract GemStepToken is
     GS_Admin,
@@ -17,7 +18,8 @@ contract GemStepToken is
     GS_AnomalyAndFraud,
     GS_MintingAndSupply,
     GS_EmergencyAndL2,
-    GS_Views
+    GS_Views,
+    GS_TestHooks
 {
     // Intentionally empty: all logic inherited. Storage & selectors preserved.
 }
