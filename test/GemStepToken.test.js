@@ -100,7 +100,7 @@ describe("GemStepToken", function () {
     it("Should initialize correctly", async function () {
       const { token } = await loadFixture(deployFixture);
       expect(await token.name()).to.equal("GemStep");
-      expect(await token.symbol()).to.equal("GST");
+      expect(await token.symbol()).to.equal("GSTEP");
       expect(await token.decimals()).to.equal(18);
     });
 

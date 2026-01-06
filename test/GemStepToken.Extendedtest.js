@@ -1033,7 +1033,7 @@ await token.connect(admin).setPriceOracle(await mock.getAddress());
     await mock.set(ethers.parseEther(priceEth), timestamp, 0); // priceWei, updatedAt, confBps
   };
 
-  // first adjust: 1 GST = 0.0005 ETH → target 10% = 0.00005 ETH
+  // first adjust: 1 GSTEP = 0.0005 ETH → target 10% = 0.00005 ETH
   await time.increase(cooldown + 1n);
   await refresh("0.0005");
   await expect(token.connect(admin).adjustStakeRequirements())
@@ -1050,14 +1050,14 @@ await token.connect(admin).setPriceOracle(await mock.getAddress());
 
   // below MIN path
   await time.increase(cooldown + 1n);
-  await refresh("0.0000005"); // 5e-7 ETH/GST → 10% below MIN
+  await refresh("0.0000005"); // 5e-7 ETH/GSTEP → 10% below MIN
   await expect(token.connect(admin).adjustStakeRequirements())
     .to.emit(token, "StakeParametersUpdated");
   expect(await token.currentStakePerStep()).to.equal(MIN);
 
   // above MAX path
   await time.increase(cooldown + 1n);
-  await refresh("0.02"); // 0.02 ETH/GST → 10% above MAX
+  await refresh("0.02"); // 0.02 ETH/GSTEP → 10% above MAX
   await expect(token.connect(admin).adjustStakeRequirements())
     .to.emit(token, "StakeParametersUpdated");
   expect(await token.currentStakePerStep()).to.equal(MAX);
@@ -1114,7 +1114,7 @@ await token.connect(admin).setPriceOracle(await mock.getAddress());
     await mock.set(ethers.parseEther(priceEth), timestamp, 0); // priceWei, updatedAt, confBps
   };
 
-  await refresh("0.001");         // 1 GST = 0.001 ETH
+  await refresh("0.001");         // 1 GSTEP = 0.001 ETH
   await mock.setPolicy(300, 100); // staleSec, minConfBps
 
   // --- only DEFAULT_ADMIN can set oracle ---

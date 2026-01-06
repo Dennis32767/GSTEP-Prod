@@ -55,7 +55,7 @@ abstract contract GemStepCore is
         require(initialSupply <= MAX_SUPPLY, "Initial supply exceeds max");
         require(_priceOracle != address(0), "Invalid price oracle");
 
-        __ERC20_init("GemStep", "GST");
+        __ERC20_init("GemStep", "GSTEP");
         __Pausable_init();
         __AccessControl_init();
         __ReentrancyGuard_init();

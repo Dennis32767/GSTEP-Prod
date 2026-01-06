@@ -147,7 +147,7 @@ const deadline = now + Math.max(60, sigPeriod - 5); // safely inside window
 async function deployFixture() {
   const [deployer, admin, user, apiSigner] = await ethers.getSigners();
 
-  // Price oracle mock: 1 GST = 0.005 ETH → target stake = 0.0005 ETH
+  // Price oracle mock: 1 GSTEP = 0.005 ETH → target stake = 0.0005 ETH
   const Mock = await ethers.getContractFactory("MockOracleV2");
 const oracle = await Mock.deploy(); // no constructor args
 await oracle.waitForDeployment();

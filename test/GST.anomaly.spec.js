@@ -33,7 +33,7 @@ async function signStepData({
 async function deployProxyFixture() {
   const [deployer, admin, user, beneficiary, api, other] = await ethers.getSigners();
 
- // Mock oracle: 1 GST = 0.005 ETH -> stake target 10% = 0.0005 ETH
+ // Mock oracle: 1 GSTEP = 0.005 ETH -> stake target 10% = 0.0005 ETH
 const Mock = await ethers.getContractFactory("MockOracleV2");
 const oracle = await Mock.deploy(); // no constructor args
 await oracle.waitForDeployment();

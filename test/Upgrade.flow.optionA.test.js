@@ -291,7 +291,7 @@ describe("GemStepToken Upgrade Tests (Option A: upgradeAndCall)", function () {
       const v2 = await ethers.getContractAt("GemStepTokenV2Mock", tokenAddress);
       // V1 invariants
       expect(await v2.name()).to.equal("GemStep");
-      expect(await v2.symbol()).to.equal("GST");
+      expect(await v2.symbol()).to.equal("GSTEP");
       expect(await v2.decimals()).to.equal(18);
       expect(await v2.totalSupply()).to.equal(INITIAL_SUPPLY);
       // V2 checks
