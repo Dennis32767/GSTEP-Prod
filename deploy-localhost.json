@@ -1,0 +1,11 @@
+{
+  "network": "localhost",
+  "minDelay": 60,
+  "tokenProxy": "0xd6e1afe5cA8D00A2EFC01B89997abE2De47fdfAf",
+  "implementation": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+  "timelock": "0x8A93d247134d91e0de6f96547cB0204e5BE8e5D8",
+  "proxyAdmin": "0x4bb279a97dA674b94F5b79c9fE5c44Cf5896DCef",
+  "proxyOwner": "0x8A93d247134d91e0de6f96547cB0204e5BE8e5D8",
+  "multisig": "0x7dc0e4862FfB1985A67f62f0090CF73f62db4d5a",
+  "oracle": "0x3331036800De61a21901c95d067387453C06d249"
+}

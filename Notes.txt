@@ -1,0 +1,322 @@
+-----------------------------------------
+npx Hardhat 
+------------------------------------------
+npx hardhat clean
+npx hardhat compile
+npx hardhat test          # quick sanity
+npx hardhat coverage      # full suite
+
+# Testing  - hardhat
+npx hardhat test test/Deployment.test.js
+npx hardhat test test/GemStepToken.test.js
+npx hardhat test test/PostDeployment.test.js
+npx hardhat test test/GemStepToken.Extendedtest.js
+npx hardhat test test/GemStepToken.upgrade.staking.test.js
+npx hardhat test test/Upgrade.flow.test.js
+npx hardhat test test/Upgrade.flow.optionA.test.js
+npx hardhat test test/GST.anomaly.spec.js
+npx hardhat test test/GemStepToken.recommended.spec.js
+
+-------------------------------------------------------------------
+#Localhost - iniial Run
+--------------------------------------------------------------------
+# terminal 1
+npx hardhat node
+
+# terminal 2 (deploy)
+npx hardhat run scripts/deployMockOracleV2.js --network localhost
+npx hardhat run scripts/deployGemStepEnv.js --network localhost
+npx hardhat run scripts/executeAccept.node.js --network localhost
+npx hardhat run scripts/grantRole.toProxyAdmin.js --network localhost
+npx hardhat run scripts/checkPostAccept.js --network localhost
+npx hardhat run scripts/upgradeRehearsal.optionA.js --network localhost
+
+# Testing  - npx hardhat node
+npx hardhat test test/Deployment.test.js --network localhost
+npx hardhat test test/GemStepToken.test.js --network localhost
+npx hardhat test test/PostDeployment.test.js --network localhost
+npx hardhat test test/GemStepToken.Extendedtest.js --network localhost
+npx hardhat test test/GemStepToken.upgrade.staking.test.js --network localhost
+npx hardhat test test/Upgrade.flow.test.js --network localhost
+npx hardhat test test/Upgrade.flow.optionA.test.js --network localhost
+npx hardhat test test/GST.anomaly.spec.js --network localhost
+npx hardhat test test/GemStepToken.recommended.spec.js --network localhost
+
+==================================================================================
+
+#Phase 1 was implmented but not needed: the steps to follow are: 
+| Stage | Network          | Action                                                |
+| ----- | -----------------| ------------------------------------------------------|
+| 1️⃣   | Arbitrum Sepolia | Deploy **GemStepToken (proxy)**                       |
+| 2️⃣   | Ethereum Sepolia | Deploy **CrossChainGovernanceL1** using L2 address    |
+| 3️⃣   | Arbitrum Sepolia | Call `setL1Governance()` linking the two              |
+| 4️⃣   | Ethereum Sepolia | Test retryable tickets (pause/unpause, update params) |
+| 5️⃣   | Mainnets         | Repeat once the cross-chain flow is confirmed stable  |
+===================================================================================
+
+--------------------------------
+#Phase 1 — Ethereum Sepolia (L1)
+-------------------------------
+- Wire-up .Env
+-------------------------------
+- deployMockOracle
+npx hardhat run scripts/deployMockOracleV2.js --network sepolia
+Deployer: 0x06811F679D39537679060e82338f4BB508fF6bd5
+SEPOLIA_ORACLE_ADDRESS=0x0a30a0dC010c797262cD68AF8BC87E189b6767b5
+------------------------------
+- deployGemStep
+npx hardhat run scripts/deployGemStepEnv.js --network sepolia
+
+------------------------------
+Schedule/Execute
+- Schedule only (recommended first):
+    node scripts/executeAccept.sepolia.js --file .\deployments\sepolia-latest.json --step schedule
+
+- Execute only (after delay has passed):
+    node scripts/executeAccept.sepolia.js --file deployments/sepolia-latest.json --step execute
+
+// Signers (2-of-2 owners) via env (any of these names work):
+    MS_EOA1_PK / MULTISIG_EOA_1_PK
+    MS_EOA2_PK / MULTISIG_EOA_2_PK
+
+- NB
+In mini mode, all Timelock.schedule/execute calls must be routed through the multisig; use the printed calldata with your MiniMultisig2of2:
+propose(timelock, 0, scheduleCalldata),
+other owner approve(id),
+execute(id),
+wait minDelay,
+repeat for executeCalldata.
+-------------------------------
+- View Contracts on Sepolia Etherscan:
+Timelock: https://sepolia.etherscan.io/address/0xC20c56f5a40E865D71b158EAC9294C0798ca6986
+MiniMultisig: https://sepolia.etherscan.io/address/0x8BcE653b62215D62C149EF57e090c46B49c4Af14
+UpgradeExecutor: https://sepolia.etherscan.io/address/0x85937837A837f91bA194889e27b7A19602058484
+GemStep Token: https://sepolia.etherscan.io/address/0x25e6ED5DB86732f541ABa1eB3C0c34F3640118DF
+
+https://sepolia.etherscan.io/address/0x7B69f4651Bf0A79793E87302Dc06CC9836caE623
+
+# Tip: For the first Sepolia run, set Timelock minDelay = 60–300s. After rehearsal succeeds, update to production delay (e.g., 24–48h) with Timelock.updateDelay through governance or a scheduled action.
+================================================================================
+
+
+--------------------------------
+#Phase 2 — Arbitrum Sepolia (L2)
+-------------------------------
+- Wire-up .Env
+-------------------------------
+- deployMockOracle
+npx hardhat run scripts/deployMockOracleV2.js --network arbitrumSepolia
+Deployer:0x873693a93c10D74ef3AB824A548a8c8C2dbd1391 
+ARBITRUM_SEPOLIA_ORACLE_ADDRESS=0x097BBBF21404E4F62e94e9380d083586D4cc91A2
+------------------------------
+- deployGemStep
+npx hardhat run scripts/deployGemStepEnv.js --network arbitrumSepolia
+
+------------------------------
+Schedule/Execute
+- Schedule only (recommended first):
+    node scripts/executeAccept.arbitrumSepolia.js --file .\deployments\arbitrumSepolia-latest.json --step schedule
+
+- Execute only (after delay has passed):
+    node scripts/executeAccept.arbitrumSepolia.js --file deployments/arbitrumSepolia-latest.json --step execute
+
+// Signers (2-of-2 owners) via env (any of these names work):
+    MS_EOA1_PK / MULTISIG_EOA_1_PK
+    MS_EOA2_PK / MULTISIG_EOA_2_PK
+
+- NB
+In mini mode, all Timelock.schedule/execute calls must be routed through the multisig; use the printed calldata with your MiniMultisig2of2:
+propose(timelock, 0, scheduleCalldata),
+other owner approve(id),
+execute(id),
+wait minDelay,
+repeat for executeCalldata.
+-------------------------------
+View Contracts on Sepolia Etherscan:
+Timelock: https://sepolia.arbiscan.io/address/0xCf5A28323f1d5256F5e728816726B8Ae27Ec9CfA
+MiniMultisig: https://sepolia.arbiscan.io/address/0x9Ebff62bE20B6cC08b98167d9fC1fD7d081BDbB1
+UpgradeExecutor: https://sepolia.arbiscan.io/address/0x8edbd626eB6b2B5636c8D0C57Ea5Ec483266C0DA
+GemStep Token: https://sepolia.arbiscan.io/token/0x58cc6b3B62aA0F31934e93473fA422154a2B5EbE
+-------------------------------
+
+#Phase 3 — Test Cross-Chain Functionality (Sepolia + Arbitrum Sepolia)
+-------------------------------
+- Deploy CrossChainGovernanceL1 on Sepolia (L1)
+npx hardhat run scripts/deploy-l1-governance-enhanced.js --network sepolia
+Copy the printed governance address → put it into .env as L1_GOVERNANCE_ADDR=.
+
+Deployer: 0x06811F679D39537679060e82338f4BB508fF6bd5
+Owner   : 0x06811F679D39537679060e82338f4BB508fF6bd5
+Inbox   : 0xaAe29B0366299461418F5324a79Afc425BE5ae21
+L2Target: 0x58cc6b3B62aA0F31934e93473fA422154a2B5EbE
+RefundL2: 0x2563c6f49e263e9F4DdB4499b134D7A19E47396b
+Deployed CrossChainGovernanceL1 at: 0xb2CBbe011E088dcBb20E21d67875f2A1d697348e
+
+https://sepolia.etherscan.io/address/0xb2CBbe011E088dcBb20E21d67875f2A1d697348e
+
+-------------------------------
+ 
+# Wire L1↔L2 governance
+On L2 GemStepToken, call setL1Governance(L1_GOVERNANCE_ADDR) once (admin-only):
+
+- then finish the link to l1:
+node scripts/link_l2_set_governor.js --file deployments/arbitrumSepolia-latest.json --step both --wait
+or
+node scripts/link_l2_set_governor.js --file deployments/arbitrumSepolia-latest.json --step schedule
+wait 300sec.........
+node scripts/link_l2_set_governor.js --file deployments/arbitrumSepolia-latest.json --step execute
+
+-------------------------------
+
+# Deployer L1 Timelocker for governance
+Step 1: Deploy Timelock
+npx hardhat run scripts/l1_deploy_timelock_manual.js --network sepolia
+L1_TIMELOCK=0xeBD30F269c0Fb636017c1C793A6dE22086c1A119
+
+Step 2: Transfer Ownership
+node scripts/l1_transfer_governance_to_timelock.js
+
+Step 3: Complete Transfer
+schedule execute script that respects the 1-hour delay
+node scripts/l1_timelock_schedule_transfer.js
+node scripts/l1_check_timelock_operations.js (insert correct const operationId)
+
+Step 4: Complete Transfer
+schedule execute script that respects the 1-hour delay
+node scripts/l1_timelock_execute_transfer.js - (insert const operationId = "0x"; const CORRECT_SALT = "0x")
+These can be found via node script/find_correct_salt.js - (insert const SCHEDULE_TX_HASH = "0x")
+--------------------------------
+
+------------------------------
+- Test L1 → L2 parameters (from Sepolia)
+# sanity
+node scripts/verify_params.js
+
+# Emergency parameters Update
+node scripts/governance_schedule_update.js 10000 1000000000000000000
+📋 NEXT STEP (after 1hr delay elapses):
+  node scripts/governance_execute_update.js 0x... 0x... 5000 1000000000000000000
+-------------------------------
+
+-------------------------------
+- Test L1 → L2 pause/unpause (from Sepolia)
+
+# Pause L2
+node scripts/tl_pause_schedule.js --on  - # schedule PAUSE
+node scripts/tl_pause_execute.js <operationId> <salt> on
+NB. 10 min delay.........
+
+or
+# Unpause L2
+node scripts/tl_pause_schedule.js --off  - # schedule UNPAUSE
+node scripts/tl_pause_execute.js <operationId> <salt> off
+NB. 10 min delay.........
+
+Check on Arbiscan (Arb Sepolia) that the retryable redeemed and the L2 contract paused (your event L2PausedByL1 / Paused).
+--------------------------------
+
+Configure Source: 
+
+Grant Parameter Admin Role to TL - node scripts/grant_param_admin_to_l2_timelock.js
+
+Confirgure Source - node scripts/configure_sources_via_l2_timelock.js
+these are the configurations: const SOURCES = [
+  ["basicapp",        false, false], // simple mobile app
+  ["mobileapp",       false, false], // alt basic source
+  ["googlefit",       false, false],
+  ["fitbit",          false, false],
+  ["applehealth",     false, false],
+  ["corporatetracker",false, false],
+  ["medicaldevice",   false, true],  // high-security device, needs attestation
+  ["wearablepremium", false, true],
+  ["fitnessplatform", true,  false], // batch platform, proof only
+  ["enterprise",      true,  false],
+  ["premiumtracker",  true,  true],  // max security: proof + attestation
+];
+
+--------------------------------
+
+Set-up App Backend API SIGNER Role
+
+Relayer caller → isTrustedAPI[relayer] = true (the msg.sender)
+- node scripts/configure_trusted_api_via_l2_timelock.js
+
+
+EIP-712 signer → has API_SIGNER_ROLE to sign step logs
+- node scripts/grant_api_signer_to_project_wallet.js
+
+--------------------------------
+
+- Grant Timelock admin Role
+node scripts/grantRole.toTimelock.js --file deployments/arbitrumSepolia-latest.json
+
+- Revoke Timelock admin Role
+npx hardhat run --network arbitrumSepolia scripts/revokeRole.fromTimelock.js
+
+-------------------------------
+
+UPGRADE STEPS
+
+npx hardhat run scripts/deploy_new_impl.js --network arbitrumSepolia
+
+$env:NEW_IMPL="0xEDD632F62CbDE11458f73f7C0eF29DDa61864085"
+node scripts/tl_executor_schedule_upgradeAndCall.js
+
+
+$env:NEW_IMPL="0xEDD632F62CbDE11458f73f7C0eF29DDa61864085"
+$env:INIT_DATA="0x"
+node scripts/tl_executor_execute_upgradeAndCall.js
+
+check upgrade
+node scripts/check_proxy_slots.js
+
+-------------------------------------------------------------------------------
+
+npx hardhat run scripts/grantRole.toProxyAdmin.js --network sepolia
+npx hardhat run scripts/checkPostAccept.js --network sepolia
+Rehearsal: npx hardhat run scripts/upgradeRehearsal.optionA.js --network sepolia
+-------------------------------
+
+
+
+
+
+
+
+
+Next Steps:
+
+Test on a forked Mainnet.
+
+Deploy to Sepolia/Goerli.
+
+Optimize gas and audit.
+
+https://dashboard.alchemy.com/
+
+
+
+sample PriceOracle implementation for Staking
+
+How to “get one” in practice
+Local/hardhat: Just deploy the MockPriceOracle (your script can do this automatically if PRICE_ORACLE_ADDRESS isn’t set).
+
+Sepolia/Testnet: Either deploy Mock (good enough) or a Chainlink-based oracle if feeds exist.
+
+Mainnet: Deploy a real oracle (TWAP/Chainlink hybrid), configure its feeds/pools, and point your token to it:
+
+
+5. Practical Example (Recommended for you)
+Safe with 5 signers
+Signer 1: Hardware Ledger (held by you as project lead).
+Signer 2: Hardware Ledger (held by trusted deputy/colleague).
+Signer 3: Hardware Trezor (backup, maybe with company custodian).
+Signer 4: Operational EOA (Metamask, restricted use).
+Signer 5: Institutional custody or Passkey wallet (last-resort recovery).
+Threshold: 3-of-5.
+On mainnet and Arbitrum, deploy identical Safes with same signer set.
+
+
+
+
+
