@@ -39,7 +39,7 @@ async function refreshOracle(oracle, priceEthString) {
 async function deployProxyFixture() {
   const [deployer, admin, user, beneficiary, api, other] = await ethers.getSigners();
 
-  // Mock oracle: 1 GST = 0.005 ETH -> target stake = 10% = 0.0005 ETH
+  // Mock oracle: 1 GSTEP = 0.005 ETH -> target stake = 10% = 0.0005 ETH
   const Mock = await ethers.getContractFactory("MockOracleV2");
   const oracle = await Mock.deploy(); // no constructor args
   await oracle.waitForDeployment();
@@ -203,7 +203,7 @@ describe("GemStepToken — Proxy + Upgrade + Staking", function () {
 
     // lower oracle price -> clamp to MIN_STAKE_PER_STEP if below min
     await time.increase(cooldown + 1n);
-    await refreshOracle(oracle, "0.0000005"); // 5e-7 ETH/GST
+    await refreshOracle(oracle, "0.0000005"); // 5e-7 ETH/GSTEP
     await expect(token.connect(admin).adjustStakeRequirements())
       .to.emit(token, "StakeParametersUpdated");
     expect(await token.currentStakePerStep()).to.equal(ethers.parseEther("0.0000001"));
