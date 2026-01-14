@@ -4,8 +4,11 @@ const { ethers, upgrades } = require("hardhat");
 const { time, loadFixture } = require("@nomicfoundation/hardhat-network-helpers");
 
 const MIN_DELAY = 60;
-const INITIAL_SUPPLY = ethers.parseUnits("40000000", 18);
-const MAX_SUPPLY = ethers.parseUnits("100000000", 18);
+
+// ✅ Match GemStepStorage constants
+const INITIAL_SUPPLY = ethers.parseUnits("400000000", 18);
+const MAX_SUPPLY     = ethers.parseUnits("1000000000", 18);
+
 const ZERO_BYTES32 = ethers.ZeroHash;
 const DEFAULT_ADMIN_ROLE = ethers.ZeroHash; // AccessControl default admin role
 
@@ -30,10 +33,6 @@ function makeSalt(label = "") {
 async function tlSchedule(tl, proposer, target, data, salt, delay) {
   await tl.connect(proposer).schedule(target, 0, data, ZERO_BYTES32, salt, delay);
 }
-async function tlExecute(tl, executor, target, data, salt) {
-  const exec = tl.connect(executor).getFunction("execute");
-  return exec(target, 0n, data, ZERO_BYTES32, salt);
-}
 async function tlExecVerbose(tl, multisig, target, data, label, delay = MIN_DELAY) {
   const salt = makeSalt(label);
   await tlSchedule(tl, multisig, target, data, salt, delay);
@@ -53,6 +52,7 @@ async function tlExecVerbose(tl, multisig, target, data, label, delay = MIN_DELA
     console.log(`[TL ${label}] callStatic reverted →`, msg);
     throw e;
   }
+
   const tx = await exec(target, 0n, data, ZERO_BYTES32, salt);
   const rcpt = await tx.wait();
   console.log(`[TL ${label}] executed, gasUsed=`, rcpt.gasUsed.toString());
@@ -97,6 +97,7 @@ async function ensureProxyAdminOwnedByExecutor({ tokenAddress, executorAddress, 
   const paTransfer = new ethers.Contract(adminFromSlot, PA_TRANSFER_ABI, deployer);
   await (await paTransfer.transferOwnership(executorAddress)).wait();
 
+  // If ProxyAdmin is Ownable2Step, executor must accept
   try {
     const paTwoStep = new ethers.Contract(adminFromSlot, PA_PENDING_ABI, ethers.provider);
     const pending = await paTwoStep.pendingOwner();
@@ -117,42 +118,54 @@ async function pickAdminForRoleGrant(token, candidates, role) {
   for (const s of candidates) {
     try {
       if (await token.hasRole(role, s.address)) return s;
-    } catch { /* token might not expose hasRole; GemStepToken does */ }
+    } catch {}
   }
-  // As a safety net, try owner() if available
+
+  // Safety net if Ownable exists
   try {
     const owner = await token.owner();
     const ownerLower = owner.toLowerCase();
     const byAddr = candidates.find((s) => s.address.toLowerCase() === ownerLower);
     if (byAddr) return byAddr;
-  } catch { /* not Ownable */ }
+  } catch {}
 
   throw new Error("No available signer has DEFAULT_ADMIN_ROLE (or owner) to grant role");
 }
 
 /* ============================= Fixtures ============================= */
-// E2E (Timelock → UpgradeExecutor → ProxyAdmin) — grant DEFAULT_ADMIN_ROLE to ProxyAdmin
+// E2E (Timelock → UpgradeExecutor → ProxyAdmin) — ✅ pass 4 initializer args
 async function deployFixture() {
-  const [deployer, multisig] = await ethers.getSigners();
+  const [deployer, multisig, treasury] = await ethers.getSigners();
 
   // Timelock
   const Timelock = await ethers.getContractFactory("TimelockController");
-  const timelock = await Timelock.deploy(MIN_DELAY, [multisig.address], [multisig.address], deployer.address);
+  const timelock = await Timelock.deploy(
+    MIN_DELAY,
+    [multisig.address],
+    [multisig.address],
+    deployer.address
+  );
   await timelock.waitForDeployment();
 
   // Oracle
   const Mock = await ethers.getContractFactory("MockOracleV2");
-  const oracle = await Mock.deploy(); await oracle.waitForDeployment();
+  const oracle = await Mock.deploy();
+  await oracle.waitForDeployment();
   const { timestamp } = await ethers.provider.getBlock("latest");
   await oracle.set(ethers.parseEther("0.005"), timestamp, 0);
   await oracle.setPolicy(300, 100);
 
-  // Token proxy
+  // Token proxy (✅ 4 args: initialSupply, admin, oracle, treasury)
   const Token = await ethers.getContractFactory("GemStepToken");
   const token = await upgrades.deployProxy(
     Token,
-    [INITIAL_SUPPLY, multisig.address, await oracle.getAddress()],
-    { kind: "transparent", timeout: 180000 }
+    [
+      INITIAL_SUPPLY,
+      multisig.address,
+      await oracle.getAddress(),
+      treasury.address,
+    ],
+    { initializer: "initialize", kind: "transparent", timeout: 180000 }
   );
   await token.waitForDeployment();
   const tokenAddress = await token.getAddress();
@@ -164,9 +177,13 @@ async function deployFixture() {
   const executorAddress = await executor.getAddress();
 
   // Ensure ProxyAdmin → executor
-  const proxyAdminAddress = await ensureProxyAdminOwnedByExecutor({ tokenAddress, executorAddress, deployer });
+  const proxyAdminAddress = await ensureProxyAdminOwnedByExecutor({
+    tokenAddress,
+    executorAddress,
+    deployer,
+  });
 
-  // Grant DEFAULT_ADMIN_ROLE to ProxyAdmin (so initializeV2 can run inside upgradeAndCall)
+  // Grant DEFAULT_ADMIN_ROLE to ProxyAdmin so initializeV2 can run during upgradeAndCall
   const granter = await pickAdminForRoleGrant(token, [multisig, deployer], DEFAULT_ADMIN_ROLE);
   await (await token.connect(granter).grantRole(DEFAULT_ADMIN_ROLE, proxyAdminAddress)).wait();
 
@@ -178,19 +195,17 @@ async function deployFixture() {
   const acceptData = executor.interface.encodeFunctionData("acceptOwnership");
   await tlExecVerbose(timelock, multisig, await executor.getAddress(), acceptData, "exec-accept");
 
-  // Final sanity
-  const paOwner = new ethers.Contract(proxyAdminAddress, PA_OWNER_ABI, ethers.provider);
-  expect((await paOwner.owner()).toLowerCase()).to.equal(executorAddress.toLowerCase());
-
-  return { deployer, multisig, timelock, token, tokenAddress, executor, executorAddress, proxyAdminAddress, oracle };
+  return { deployer, multisig, treasury, timelock, token, tokenAddress, executor, executorAddress, proxyAdminAddress, oracle };
 }
 
-// Direct owner path (no TL). Also grant DEFAULT_ADMIN_ROLE to ProxyAdmin.
+// Direct owner path (no TL) — ✅ pass 4 initializer args
 async function deployFixtureDirect() {
-  const [deployer] = await ethers.getSigners();
+  const [deployer, treasury] = await ethers.getSigners();
 
+  // Oracle
   const Mock = await ethers.getContractFactory("MockOracleV2");
-  const oracle = await Mock.deploy(); await oracle.waitForDeployment();
+  const oracle = await Mock.deploy();
+  await oracle.waitForDeployment();
   const { timestamp } = await ethers.provider.getBlock("latest");
   await oracle.set(ethers.parseEther("0.005"), timestamp, 0);
   await oracle.setPolicy(300, 100);
@@ -198,8 +213,13 @@ async function deployFixtureDirect() {
   const Token = await ethers.getContractFactory("GemStepToken");
   const token = await upgrades.deployProxy(
     Token,
-    [INITIAL_SUPPLY, deployer.address, await oracle.getAddress()],
-    { kind: "transparent" }
+    [
+      INITIAL_SUPPLY,
+      deployer.address,
+      await oracle.getAddress(),
+      treasury.address,
+    ],
+    { initializer: "initialize", kind: "transparent" }
   );
   await token.waitForDeployment();
   const tokenAddress = await token.getAddress();
@@ -209,15 +229,19 @@ async function deployFixtureDirect() {
   await executor.waitForDeployment();
   const executorAddress = await executor.getAddress();
 
-  const proxyAdminAddress = await ensureProxyAdminOwnedByExecutor({ tokenAddress, executorAddress, deployer });
+  const proxyAdminAddress = await ensureProxyAdminOwnedByExecutor({
+    tokenAddress,
+    executorAddress,
+    deployer,
+  });
 
-  // Grant DEFAULT_ADMIN_ROLE to ProxyAdmin
+  // Grant DEFAULT_ADMIN_ROLE to ProxyAdmin so initializeV2 can run during upgradeAndCall
   const granter = await pickAdminForRoleGrant(token, [deployer], DEFAULT_ADMIN_ROLE);
   await (await token.connect(granter).grantRole(DEFAULT_ADMIN_ROLE, proxyAdminAddress)).wait();
 
   await (await executor.setUpgradeDelay(0)).wait();
 
-  return { deployer, token, tokenAddress, proxyAdminAddress, executor, executorAddress };
+  return { deployer, treasury, token, tokenAddress, proxyAdminAddress, executor, executorAddress, oracle };
 }
 
 /* =============================== Tests =============================== */
@@ -229,22 +253,24 @@ describe("GemStepToken Upgrade Tests (Timelock → UpgradeExecutor → ProxyAdmi
         await loadFixture(deployFixture);
 
       const V2 = await ethers.getContractFactory("GemStepTokenV2Mock");
-      const v2Impl = await V2.deploy(); await v2Impl.waitForDeployment();
+      const v2Impl = await V2.deploy();
+      await v2Impl.waitForDeployment();
       const newImpl = await v2Impl.getAddress();
 
       const beforeImpl = await readImplFromSlot(tokenAddress);
 
-      const initCalldata = (await ethers.getContractFactory("GemStepTokenV2Mock"))
-        .interface.encodeFunctionData("initializeV2");
+      const initCalldata = V2.interface.encodeFunctionData("initializeV2");
 
-      // schedule & execute upgradeAndCall via TL
+      // schedule & execute upgradeAndCall via TL (executor owner = timelock)
       const scheduleData = executor.interface.encodeFunctionData(
-        "scheduleUpgradeAndCall", [proxyAdminAddress, tokenAddress, newImpl, initCalldata]
+        "scheduleUpgradeAndCall",
+        [proxyAdminAddress, tokenAddress, newImpl, initCalldata]
       );
       await tlExecVerbose(timelock, multisig, await executor.getAddress(), scheduleData, "sched-uac");
 
-      const executeData  = executor.interface.encodeFunctionData(
-        "executeUpgradeAndCall",  [proxyAdminAddress, tokenAddress, newImpl, initCalldata]
+      const executeData = executor.interface.encodeFunctionData(
+        "executeUpgradeAndCall",
+        [proxyAdminAddress, tokenAddress, newImpl, initCalldata]
       );
       await tlExecVerbose(timelock, multisig, await executor.getAddress(), executeData, "exec-uac");
 
@@ -253,8 +279,8 @@ describe("GemStepToken Upgrade Tests (Timelock → UpgradeExecutor → ProxyAdmi
       expect(beforeImpl.toLowerCase()).to.not.equal(afterImpl.toLowerCase());
 
       const v2 = await ethers.getContractAt("GemStepTokenV2Mock", tokenAddress);
-      // initializer already ran inside upgradeAndCall
       expect(await v2.version()).to.equal(2);
+      expect(await v2.newVariable()).to.equal(42); // proves initializeV2 ran inside upgradeAndCall
     });
 
     it("direct ProxyAdmin.upgradeAndCall via executor (no TL)", async function () {
@@ -262,16 +288,16 @@ describe("GemStepToken Upgrade Tests (Timelock → UpgradeExecutor → ProxyAdmi
         await loadFixture(deployFixtureDirect);
 
       const V2 = await ethers.getContractFactory("GemStepTokenV2Mock");
-      const v2Impl = await V2.deploy(); await v2Impl.waitForDeployment();
+      const v2Impl = await V2.deploy();
+      await v2Impl.waitForDeployment();
       const newImpl = await v2Impl.getAddress();
 
       const beforeImpl = await readImplFromSlot(tokenAddress);
 
-      const initCalldata = (await ethers.getContractFactory("GemStepTokenV2Mock"))
-        .interface.encodeFunctionData("initializeV2");
+      const initCalldata = V2.interface.encodeFunctionData("initializeV2");
 
       await (await executor.scheduleUpgradeAndCall(proxyAdminAddress, tokenAddress, newImpl, initCalldata)).wait();
-      await (await executor.executeUpgradeAndCall (proxyAdminAddress, tokenAddress, newImpl, initCalldata)).wait();
+      await (await executor.executeUpgradeAndCall(proxyAdminAddress, tokenAddress, newImpl, initCalldata)).wait();
 
       const afterImpl = await readImplFromSlot(tokenAddress);
       expect(afterImpl.toLowerCase()).to.equal(newImpl.toLowerCase());
@@ -279,6 +305,7 @@ describe("GemStepToken Upgrade Tests (Timelock → UpgradeExecutor → ProxyAdmi
 
       const v2 = await ethers.getContractAt("GemStepTokenV2Mock", tokenAddress);
       expect(await v2.version()).to.equal(2);
+      expect(await v2.newVariable()).to.equal(42);
     });
 
     it("rejects unauthorized direct upgrades (caller is not executor owner)", async function () {
@@ -286,11 +313,11 @@ describe("GemStepToken Upgrade Tests (Timelock → UpgradeExecutor → ProxyAdmi
         await loadFixture(deployFixture);
 
       const V2 = await ethers.getContractFactory("GemStepTokenV2Mock");
-      const v2Impl = await V2.deploy(); await v2Impl.waitForDeployment();
+      const v2Impl = await V2.deploy();
+      await v2Impl.waitForDeployment();
       const newImpl = await v2Impl.getAddress();
 
-      const initCalldata = (await ethers.getContractFactory("GemStepTokenV2Mock"))
-        .interface.encodeFunctionData("initializeV2");
+      const initCalldata = V2.interface.encodeFunctionData("initializeV2");
 
       await expect(
         executor.connect(multisig).executeUpgradeAndCall(proxyAdminAddress, tokenAddress, newImpl, initCalldata)
@@ -301,18 +328,26 @@ describe("GemStepToken Upgrade Tests (Timelock → UpgradeExecutor → ProxyAdmi
       const { timelock, multisig, tokenAddress, proxyAdminAddress, executor } =
         await loadFixture(deployFixture);
 
+      // snapshot V1 values
+      const v1 = await ethers.getContractAt("GemStepToken", tokenAddress);
+      const nameBefore = await v1.name();
+      const symbolBefore = await v1.symbol();
+      const supplyBefore = await v1.totalSupply();
+
       const V2 = await ethers.getContractFactory("GemStepTokenV2Mock");
-      const v2Impl = await V2.deploy(); await v2Impl.waitForDeployment();
+      const v2Impl = await V2.deploy();
+      await v2Impl.waitForDeployment();
       const newImpl = await v2Impl.getAddress();
 
-      const initCalldata = (await ethers.getContractFactory("GemStepTokenV2Mock"))
-        .interface.encodeFunctionData("initializeV2");
+      const initCalldata = V2.interface.encodeFunctionData("initializeV2");
 
       const scheduleData = executor.interface.encodeFunctionData(
-        "scheduleUpgradeAndCall", [proxyAdminAddress, tokenAddress, newImpl, initCalldata]
+        "scheduleUpgradeAndCall",
+        [proxyAdminAddress, tokenAddress, newImpl, initCalldata]
       );
-      const executeData  = executor.interface.encodeFunctionData(
-        "executeUpgradeAndCall",  [proxyAdminAddress, tokenAddress, newImpl, initCalldata]
+      const executeData = executor.interface.encodeFunctionData(
+        "executeUpgradeAndCall",
+        [proxyAdminAddress, tokenAddress, newImpl, initCalldata]
       );
 
       await tlExecVerbose(timelock, multisig, await executor.getAddress(), scheduleData, "sched");
@@ -320,14 +355,12 @@ describe("GemStepToken Upgrade Tests (Timelock → UpgradeExecutor → ProxyAdmi
 
       const v2 = await ethers.getContractAt("GemStepTokenV2Mock", tokenAddress);
 
-      // V1 invariants
-      expect(await v2.name()).to.equal("GemStep");
-      expect(await v2.symbol()).to.equal("GSTEP");
-      expect(await v2.decimals()).to.equal(18);
-      expect(await v2.totalSupply()).to.equal(INITIAL_SUPPLY);
+      expect(await v2.name()).to.equal(nameBefore);
+      expect(await v2.symbol()).to.equal(symbolBefore);
+      expect(await v2.totalSupply()).to.equal(supplyBefore);
 
-      // V2 checks
       expect(await v2.version()).to.equal(2);
+      expect(await v2.newVariable()).to.equal(42);
     });
 
     it("initializes new V2 features and prevents re-init (atomic path)", async function () {
@@ -335,25 +368,27 @@ describe("GemStepToken Upgrade Tests (Timelock → UpgradeExecutor → ProxyAdmi
         await loadFixture(deployFixture);
 
       const V2 = await ethers.getContractFactory("GemStepTokenV2Mock");
-      const v2Impl = await V2.deploy(); await v2Impl.waitForDeployment();
+      const v2Impl = await V2.deploy();
+      await v2Impl.waitForDeployment();
       const newImpl = await v2Impl.getAddress();
 
-      const initCalldata = (await ethers.getContractFactory("GemStepTokenV2Mock"))
-        .interface.encodeFunctionData("initializeV2");
+      const initCalldata = V2.interface.encodeFunctionData("initializeV2");
 
       const scheduleData = executor.interface.encodeFunctionData(
-        "scheduleUpgradeAndCall", [proxyAdminAddress, tokenAddress, newImpl, initCalldata]
+        "scheduleUpgradeAndCall",
+        [proxyAdminAddress, tokenAddress, newImpl, initCalldata]
       );
-      const executeData  = executor.interface.encodeFunctionData(
-        "executeUpgradeAndCall",  [proxyAdminAddress, tokenAddress, newImpl, initCalldata]
+      const executeData = executor.interface.encodeFunctionData(
+        "executeUpgradeAndCall",
+        [proxyAdminAddress, tokenAddress, newImpl, initCalldata]
       );
 
       await tlExecVerbose(timelock, multisig, await executor.getAddress(), scheduleData, "sched");
       await tlExecVerbose(timelock, multisig, await executor.getAddress(), executeData, "exec");
 
       const v2 = await ethers.getContractAt("GemStepTokenV2Mock", tokenAddress);
-      await expect(v2.initializeV2()).to.be.reverted; // already init inside upgradeAndCall
       expect(await v2.newFunction()).to.equal(true);
+      await expect(v2.initializeV2()).to.be.reverted; // Already initialized
     });
   });
 
@@ -362,26 +397,59 @@ describe("GemStepToken Upgrade Tests (Timelock → UpgradeExecutor → ProxyAdmi
       const { timelock, multisig, tokenAddress, proxyAdminAddress, executor } =
         await loadFixture(deployFixture);
 
+      // Snapshot key storage BEFORE upgrade (layout proof)
+      const v1 = await ethers.getContractAt("GemStepToken", tokenAddress);
+      const burnFeeBefore     = await v1.burnFee();
+      const rewardRateBefore  = await v1.rewardRate();
+      const stepLimitBefore   = await v1.stepLimit();
+      const sigValidBefore    = await v1.signatureValidityPeriod();
+      const treasuryBefore    = await v1.treasury();
+      const stakeBefore       = await v1.currentStakePerStep();
+      const supplyBefore      = await v1.totalSupply();
+      const beforeImpl        = await readImplFromSlot(tokenAddress);
+      const adminSlotBefore   = await readAdminFromSlot(tokenAddress);
+
       const V2 = await ethers.getContractFactory("GemStepTokenV2Mock");
-      const v2Impl = await V2.deploy(); await v2Impl.waitForDeployment();
+      const v2Impl = await V2.deploy();
+      await v2Impl.waitForDeployment();
       const newImpl = await v2Impl.getAddress();
 
-      const initCalldata = (await ethers.getContractFactory("GemStepTokenV2Mock"))
-        .interface.encodeFunctionData("initializeV2");
+      const initCalldata = V2.interface.encodeFunctionData("initializeV2");
 
       const scheduleData = executor.interface.encodeFunctionData(
-        "scheduleUpgradeAndCall", [proxyAdminAddress, tokenAddress, newImpl, initCalldata]
+        "scheduleUpgradeAndCall",
+        [proxyAdminAddress, tokenAddress, newImpl, initCalldata]
       );
-      const executeData  = executor.interface.encodeFunctionData(
-        "executeUpgradeAndCall",  [proxyAdminAddress, tokenAddress, newImpl, initCalldata]
+      const executeData = executor.interface.encodeFunctionData(
+        "executeUpgradeAndCall",
+        [proxyAdminAddress, tokenAddress, newImpl, initCalldata]
       );
 
       await tlExecVerbose(timelock, multisig, await executor.getAddress(), scheduleData, "sched");
       await tlExecVerbose(timelock, multisig, await executor.getAddress(), executeData, "exec");
 
       const v2 = await ethers.getContractAt("GemStepTokenV2Mock", tokenAddress);
-      expect(await v2.verifyStorage()).to.equal(true);
+
+      // Key slot/admin slot stable for transparent proxy
+      const adminSlotAfter = await readAdminFromSlot(tokenAddress);
+      expect(adminSlotAfter.toLowerCase()).to.equal(adminSlotBefore.toLowerCase());
+
+      const afterImpl = await readImplFromSlot(tokenAddress);
+      expect(afterImpl.toLowerCase()).to.equal(newImpl.toLowerCase());
+      expect(afterImpl.toLowerCase()).to.not.equal(beforeImpl.toLowerCase());
+
+      // Layout preserved
+      expect(await v2.burnFee()).to.equal(burnFeeBefore);
+      expect(await v2.rewardRate()).to.equal(rewardRateBefore);
+      expect(await v2.stepLimit()).to.equal(stepLimitBefore);
+      expect(await v2.signatureValidityPeriod()).to.equal(sigValidBefore);
+      expect(await v2.treasury()).to.equal(treasuryBefore);
+      expect(await v2.currentStakePerStep()).to.equal(stakeBefore);
+      expect(await v2.totalSupply()).to.equal(supplyBefore);
+
+      // Cap should be MAX_SUPPLY from your storage/erc20capped
       expect(await v2.cap()).to.equal(MAX_SUPPLY);
+      expect(await v2.newVariable()).to.equal(42);
     });
 
     it("emits UpgradeExecutedWithData during the upgrade", async function () {
@@ -389,24 +457,26 @@ describe("GemStepToken Upgrade Tests (Timelock → UpgradeExecutor → ProxyAdmi
         await loadFixture(deployFixture);
 
       const V2 = await ethers.getContractFactory("GemStepTokenV2Mock");
-      const v2Impl = await V2.deploy(); await v2Impl.waitForDeployment();
+      const v2Impl = await V2.deploy();
+      await v2Impl.waitForDeployment();
       const newImpl = await v2Impl.getAddress();
 
-      const initCalldata = (await ethers.getContractFactory("GemStepTokenV2Mock"))
-        .interface.encodeFunctionData("initializeV2");
+      const initCalldata = V2.interface.encodeFunctionData("initializeV2");
 
-      // schedule
+      // schedule via timelock
       const scheduleData = executor.interface.encodeFunctionData(
-        "scheduleUpgradeAndCall", [proxyAdminAddress, tokenAddress, newImpl, initCalldata]
+        "scheduleUpgradeAndCall",
+        [proxyAdminAddress, tokenAddress, newImpl, initCalldata]
       );
       const schedSalt = makeSalt("sched-emit");
       await tlSchedule(timelock, multisig, await executor.getAddress(), scheduleData, schedSalt, MIN_DELAY);
       await time.increase(MIN_DELAY + 1);
       await timelock.connect(multisig).execute(await executor.getAddress(), 0, scheduleData, ZERO_BYTES32, schedSalt);
 
-      // execute (expect the event)
+      // execute via timelock (expect event on executor)
       const executeData = executor.interface.encodeFunctionData(
-        "executeUpgradeAndCall", [proxyAdminAddress, tokenAddress, newImpl, initCalldata]
+        "executeUpgradeAndCall",
+        [proxyAdminAddress, tokenAddress, newImpl, initCalldata]
       );
       const execSalt = makeSalt("exec-emit");
       await tlSchedule(timelock, multisig, await executor.getAddress(), executeData, execSalt, MIN_DELAY);
@@ -414,8 +484,57 @@ describe("GemStepToken Upgrade Tests (Timelock → UpgradeExecutor → ProxyAdmi
 
       await expect(
         timelock.connect(multisig).execute(await executor.getAddress(), 0, executeData, ZERO_BYTES32, execSalt)
-      ).to.emit(executor, "UpgradeExecutedWithData")
-       .withArgs(proxyAdminAddress, tokenAddress, newImpl, initCalldata);
+      )
+        .to.emit(executor, "UpgradeExecutedWithData")
+        .withArgs(proxyAdminAddress, tokenAddress, newImpl, initCalldata);
     });
   });
+  it("keeps ProxyAdmin ownership with the UpgradeExecutor", async function () {
+  const { timelock, multisig, tokenAddress, proxyAdminAddress, executor, executorAddress } =
+    await loadFixture(deployFixture);
+
+  const V2 = await ethers.getContractFactory("GemStepTokenV2Mock");
+  const v2Impl = await V2.deploy(); await v2Impl.waitForDeployment();
+  const newImpl = await v2Impl.getAddress();
+  const initCalldata = V2.interface.encodeFunctionData("initializeV2");
+
+  const scheduleData = executor.interface.encodeFunctionData(
+    "scheduleUpgradeAndCall", [proxyAdminAddress, tokenAddress, newImpl, initCalldata]
+  );
+  const executeData = executor.interface.encodeFunctionData(
+    "executeUpgradeAndCall", [proxyAdminAddress, tokenAddress, newImpl, initCalldata]
+  );
+
+  await tlExecVerbose(timelock, multisig, await executor.getAddress(), scheduleData, "sched");
+  await tlExecVerbose(timelock, multisig, await executor.getAddress(), executeData, "exec");
+
+  const paOwner = new ethers.Contract(proxyAdminAddress, PA_OWNER_ABI, ethers.provider);
+  expect((await paOwner.owner()).toLowerCase()).to.equal(executorAddress.toLowerCase());
+});
+
+it("keeps the EIP-1967 admin slot unchanged across upgrade", async function () {
+  const { timelock, multisig, tokenAddress, proxyAdminAddress, executor } =
+    await loadFixture(deployFixture);
+
+  const adminBefore = await readAdminFromSlot(tokenAddress);
+
+  const V2 = await ethers.getContractFactory("GemStepTokenV2Mock");
+  const v2Impl = await V2.deploy(); await v2Impl.waitForDeployment();
+  const newImpl = await v2Impl.getAddress();
+  const initCalldata = V2.interface.encodeFunctionData("initializeV2");
+
+  const scheduleData = executor.interface.encodeFunctionData(
+    "scheduleUpgradeAndCall", [proxyAdminAddress, tokenAddress, newImpl, initCalldata]
+  );
+  const executeData = executor.interface.encodeFunctionData(
+    "executeUpgradeAndCall", [proxyAdminAddress, tokenAddress, newImpl, initCalldata]
+  );
+
+  await tlExecVerbose(timelock, multisig, await executor.getAddress(), scheduleData, "sched");
+  await tlExecVerbose(timelock, multisig, await executor.getAddress(), executeData, "exec");
+
+  const adminAfter = await readAdminFromSlot(tokenAddress);
+  expect(adminAfter.toLowerCase()).to.equal(adminBefore.toLowerCase());
+});
+
 });

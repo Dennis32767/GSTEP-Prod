@@ -1,4 +1,6 @@
 // hardhat.config.js
+/* eslint-disable no-console */
+
 require("@nomicfoundation/hardhat-toolbox");
 require("@openzeppelin/hardhat-upgrades");
 require("hardhat-gas-reporter");
@@ -6,14 +8,17 @@ require("solidity-coverage");
 require("hardhat-contract-sizer");
 require("dotenv").config();
 
-/* ------------------------- helpers ------------------------- */
+/* ========================= helpers ========================= */
 const normalizePK = (pk) => (pk && !pk.startsWith("0x") ? `0x${pk}` : pk);
+
 const envBool = (v, def) =>
   v == null ? def : !["0", "false", "no", "off"].includes(String(v).toLowerCase());
+
 const envInt = (v, def) => {
   const n = parseInt(String(v ?? ""), 10);
   return Number.isFinite(n) ? n : def;
 };
+
 const warnMissing = (label, val) => {
   if (!val) console.warn(`⚠️  Missing env for ${label}`);
   return val || "";
@@ -23,64 +28,58 @@ const warnMissing = (label, val) => {
 const isHex32 = (v) => /^0x[0-9a-fA-F]{64}$/.test(v || "");
 const pickPK = (label, v) => {
   const pk = normalizePK(v);
-  if (!pk) return undefined;                 // unset OK
+  if (!pk) return undefined; // unset OK
   if (!isHex32(pk)) {
     console.warn(`⚠️  ${label} looks invalid (need 0x + 64 hex). Ignoring it.`);
-    return undefined;                         // ignore bad/placeholder keys
+    return undefined;
   }
   return pk;
 };
 
-/* -------------------- coverage & size flags -------------------- */
-// Detect coverage early (argv/env)
+const accArr = (pk) => (pk ? [pk] : []);
+
+/* =================== mode detection =================== */
 const IS_COVERAGE =
   process.argv.includes("coverage") ||
   String(process.env.SOLIDITY_COVERAGE || "").toLowerCase() === "1" ||
   String(process.env.COVERAGE || "").toLowerCase() === "1";
 
-// Optional: filter which contracts to size (comma-separated) — when set, behave like prod for byte-size accuracy
 const SIZE_ONLY = (process.env.SIZE_ONLY || "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
 const IS_SIZE_MODE = SIZE_ONLY.length > 0;
 
-// During coverage, hard block any network selection and force local
 if (IS_COVERAGE) {
-  delete process.env.HARDHAT_NETWORK; // even if empty string
+  // Prevent accidental remote net selection during coverage
+  delete process.env.HARDHAT_NETWORK;
 }
 
-/* -------------------- build knobs (env) -------------------- */
-// Profiles: dev | prod (default dev)
-const BUILD_PROFILE = process.env.BUILD_PROFILE || "dev";
+const BUILD_PROFILE = (process.env.BUILD_PROFILE || "dev").toLowerCase();
 const IS_PROD = BUILD_PROFILE === "prod";
 
-// Optimizer / IR / Yul toggles
-// Defaults match the *previous version* behavior:
-// - coverage: runs=1, IR=off, Yul=off, keep revert strings
-// - prod/size: runs=50
-// - dev: runs=200
-const DEFAULT_RUNS =
-  IS_COVERAGE ? 1 : (IS_PROD || IS_SIZE_MODE) ? 50 : 200;
-
+/* =================== build knobs =================== */
+// Defaults:
+// - coverage: runs=1, viaIR off, yul off, keep revert strings
+// - prod/size: runs=50 (bytecode closer to deploy reality)
+// - dev: runs=200 (faster deploys / good enough)
+const DEFAULT_RUNS = IS_COVERAGE ? 1 : IS_PROD || IS_SIZE_MODE ? 50 : 200;
 const OPTIMIZER_RUNS = envInt(process.env.OPTIMIZER_RUNS, DEFAULT_RUNS);
-// viaIR default ON, but OFF for coverage
+
+// IMPORTANT for solidity-coverage stability: viaIR MUST be false.
 const USE_IR = IS_COVERAGE ? false : envBool(process.env.USE_IR, true);
-// Yul default ON, but OFF for coverage; if viaIR is ON, Yul is effectively ON
+
+// Yul default ON for non-coverage; if viaIR is ON, yul is effectively ON
 const RAW_YUL = envBool(process.env.YUL, true);
 const YUL = IS_COVERAGE ? false : RAW_YUL;
 const EFFECTIVE_YUL = USE_IR ? true : YUL;
 
-// Optional Yul steps bias (leave blank for defaults)
 const YUL_STEPS = process.env.YUL_STEPS || "";
-
-// EVM version (pin to shanghai; allow env override)
 const EVM_VERSION = (process.env.EVM_VERSION || "shanghai").toLowerCase();
 
 const PRINT_BUILD = envBool(process.env.PRINT_BUILD, false);
 
-/* -------------------- resolve target network -------------------- */
-// Only resolve CLI network if not in coverage
+/* =================== network resolution =================== */
 const getCliNetwork = () => {
   const i = process.argv.indexOf("--network");
   if (i !== -1 && process.argv[i + 1]) return process.argv[i + 1];
@@ -88,14 +87,16 @@ const getCliNetwork = () => {
   if (nArg) return nArg.split("=")[1];
   return null;
 };
+
 const CLI_NETWORK = IS_COVERAGE ? null : getCliNetwork();
 if (CLI_NETWORK) process.env.HARDHAT_NETWORK = CLI_NETWORK;
 
 const TARGET_NET = (process.env.HARDHAT_NETWORK || "hardhat").toLowerCase();
 const IS_LOCAL = TARGET_NET === "hardhat" || TARGET_NET === "localhost";
 
-/* -------------------- revert string policy -------------------- */
-// Keep revert strings in dev/coverage; strip on prod AND when sizing for deployable accuracy — NEVER strip during coverage
+/* =================== revert string policy =================== */
+// Never strip in coverage.
+// Strip in prod non-local + size mode (deploy-accurate sizing).
 const STRIP_REVERTS = (() => {
   if (process.env.STRIP_REVERTS != null) {
     const v = String(process.env.STRIP_REVERTS).toLowerCase();
@@ -106,24 +107,20 @@ const STRIP_REVERTS = (() => {
   return IS_PROD && !IS_LOCAL;
 })();
 
-/* -------------------- SOLC settings (final) -------------------- */
+/* =================== Solidity settings =================== */
 const SOLC_SETTINGS = {
   optimizer: {
     enabled: true,
     runs: OPTIMIZER_RUNS,
     details: {
-      yul: EFFECTIVE_YUL, // false in coverage
-      ...(EFFECTIVE_YUL && YUL_STEPS
-        ? { yulDetails: { optimizerSteps: YUL_STEPS } }
-        : {}),
+      yul: EFFECTIVE_YUL,
+      ...(EFFECTIVE_YUL && YUL_STEPS ? { yulDetails: { optimizerSteps: YUL_STEPS } } : {}),
     },
   },
-  // Force non-IR during coverage so instrumentation & reverts behave
-  viaIR: USE_IR, // false in coverage
+  viaIR: USE_IR, // forced false during coverage
   metadata: { bytecodeHash: "none" },
   evmVersion: EVM_VERSION,
   debug: {
-    // ALWAYS keep revert strings during coverage
     revertStrings: IS_COVERAGE ? "default" : STRIP_REVERTS ? "strip" : "default",
   },
 };
@@ -131,36 +128,35 @@ const SOLC_SETTINGS = {
 if (PRINT_BUILD) {
   const bannerNetwork = IS_COVERAGE
     ? "hardhat"
-    : (CLI_NETWORK || process.env.HARDHAT_NETWORK || "hardhat");
+    : CLI_NETWORK || process.env.HARDHAT_NETWORK || "hardhat";
+
   console.log(
-    `[Build] profile=${IS_PROD ? "prod" : IS_SIZE_MODE ? "size" : "dev"}${IS_COVERAGE ? " (coverage)" : ""} ` +
-      `runs=${OPTIMIZER_RUNS} viaIR=${USE_IR ? "on" : "off"} yul=${EFFECTIVE_YUL ? "true" : "false"} ` +
-      `yulSteps=${EFFECTIVE_YUL && YUL_STEPS ? `(custom:${YUL_STEPS.length} chars)` : "(default)"} ` +
-      `evm=${EVM_VERSION} coverage=${IS_COVERAGE ? "on" : "off"} network=${bannerNetwork} ` +
-      `strip=${STRIP_REVERTS ? "on" : "off"}`
+    `[Build] profile=${IS_PROD ? "prod" : IS_SIZE_MODE ? "size" : "dev"}${
+      IS_COVERAGE ? " (coverage)" : ""
+    } runs=${OPTIMIZER_RUNS} viaIR=${USE_IR ? "on" : "off"} yul=${
+      EFFECTIVE_YUL ? "true" : "false"
+    } yulSteps=${EFFECTIVE_YUL && YUL_STEPS ? `(custom:${YUL_STEPS.length} chars)` : "(default)"} evm=${EVM_VERSION} coverage=${
+      IS_COVERAGE ? "on" : "off"
+    } network=${bannerNetwork} strip=${STRIP_REVERTS ? "on" : "off"}`
   );
 }
 
-/* -------------------- env: RPCs & keys (current layout) -------------------- */
+/* =================== env: RPCs & keys =================== */
 const {
-  // RPC endpoints (full URLs)
   SEPOLIA_RPC_URL,
   ARBITRUM_SEPOLIA_RPC_URL,
   ARBITRUM_ONE_RPC_URL,
   MAINNET_RPC_URL,
 
-  // Split deployer keys
   L1_TEST_PK,
   L2_TEST_PK,
   L1_PROD_PK,
   L2_PROD_PK,
 
-  // Explorers
   ETHERSCAN_API_KEY,
   ARBISCAN_API_KEY,
 } = process.env;
 
-/* ---- validated PKs (bad ones are ignored) ---- */
 const PKS = {
   L1_TEST: pickPK("L1_TEST_PK", L1_TEST_PK),
   L1_PROD: pickPK("L1_PROD_PK", L1_PROD_PK),
@@ -168,10 +164,7 @@ const PKS = {
   L2_PROD: pickPK("L2_PROD_PK", L2_PROD_PK),
 };
 
-// Build accounts arrays (omit if missing)
-const accArr = (pk) => (pk ? [pk] : []);
-
-/* -------------------- networks (split keys) -------------------- */
+/* =================== networks =================== */
 /**
  * Mapping:
  * - sepolia (L1 test)            → L1_TEST_PK
@@ -179,7 +172,7 @@ const accArr = (pk) => (pk ? [pk] : []);
  * - arbitrumOne (L2 prod)        → L2_PROD_PK
  * - mainnet (L1 prod)            → L1_PROD_PK
  *
- * Also provide TitleCase aliases to match any existing scripts:
+ * Also provide TitleCase aliases to match existing scripts:
  * - EthSepolia, ArbitrumSepolia, ArbitrumOne
  */
 const networks = {
@@ -190,7 +183,6 @@ const networks = {
   },
   localhost: { chainId: 31337, url: "http://127.0.0.1:8545" },
 
-  // L1 test
   sepolia: {
     url: warnMissing("SEPOLIA_RPC_URL", SEPOLIA_RPC_URL),
     chainId: 11155111,
@@ -210,7 +202,6 @@ const networks = {
     timeout: 120000,
   },
 
-  // L2 test
   arbitrumSepolia: {
     url: warnMissing("ARBITRUM_SEPOLIA_RPC_URL", ARBITRUM_SEPOLIA_RPC_URL),
     chainId: 421614,
@@ -230,11 +221,11 @@ const networks = {
     timeout: 120000,
   },
 
-  // L2 prod
   arbitrumOne: {
     url: warnMissing("ARBITRUM_ONE_RPC_URL", ARBITRUM_ONE_RPC_URL),
     chainId: 42161,
     accounts: accArr(PKS.L2_PROD),
+    gas: "auto",
     gasPrice: "auto",
     timeout: 120000,
   },
@@ -242,29 +233,23 @@ const networks = {
     url: warnMissing("ARBITRUM_ONE_RPC_URL", ARBITRUM_ONE_RPC_URL),
     chainId: 42161,
     accounts: accArr(PKS.L2_PROD),
+    gas: "auto",
     gasPrice: "auto",
     timeout: 120000,
   },
 
-  // L1 prod
   mainnet: {
     url: warnMissing("MAINNET_RPC_URL", MAINNET_RPC_URL),
     chainId: 1,
     accounts: accArr(PKS.L1_PROD),
+    gas: "auto",
     gasPrice: "auto",
     timeout: 120000,
   },
 };
 
-/* ---------------------- export config ---------------------- */
-module.exports = {
-  defaultNetwork: "hardhat",
-
-  networks,
-
-  solidity: { version: "0.8.30", settings: SOLC_SETTINGS },
-
-etherscan: {
+/* =================== etherscan / sourcify =================== */
+const etherscan = {
   apiKey: {
     mainnet: ETHERSCAN_API_KEY || "",
     sepolia: ETHERSCAN_API_KEY || "",
@@ -289,10 +274,27 @@ etherscan: {
       },
     },
   ],
-},
+};
+
+// Optional but nice: don’t fail verify due to missing api keys on local runs
+const hasAnyExplorerKey = Boolean(ETHERSCAN_API_KEY || ARBISCAN_API_KEY);
+
+module.exports = {
+  defaultNetwork: "hardhat",
+  networks,
+
+  solidity: {
+    version: "0.8.30",
+    settings: SOLC_SETTINGS,
+  },
+
+  etherscan,
+
+  // Hardhat toolbox already includes mocha/chai matchers. Keep timeout generous.
+  mocha: { timeout: IS_COVERAGE ? 400000 : 200000 },
 
   gasReporter: {
-    enabled: envBool(process.env.REPORT_GAS, true),
+    enabled: envBool(process.env.REPORT_GAS, true), // default ON; turn off when needed
     currency: "USD",
     coinmarketcap: process.env.COINMARKETCAP_API_KEY || undefined,
   },
@@ -305,8 +307,14 @@ etherscan: {
     ...(IS_SIZE_MODE ? { only: SIZE_ONLY } : {}),
   },
 
-  // Longer timeout for coverage
-  mocha: { timeout: IS_COVERAGE ? 400000 : 200000 },
+  // Optional: make verify less annoying if keys are missing (doesn't affect deployments)
+  verify: hasAnyExplorerKey
+    ? undefined
+    : {
+        etherscan: {
+          apiKey: "",
+        },
+      },
 
   paths: {
     sources: "./contracts",

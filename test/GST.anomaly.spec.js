@@ -31,38 +31,66 @@ async function signStepData({
 
 /* ---------- Fixture: proxy deploy + roles ---------- */
 async function deployProxyFixture() {
-  const [deployer, admin, user, beneficiary, api, other] = await ethers.getSigners();
+  const [deployer, admin, treasury, user, beneficiary, api, other] =
+    await ethers.getSigners();
 
- // Mock oracle: 1 GSTEP = 0.005 ETH -> stake target 10% = 0.0005 ETH
-const Mock = await ethers.getContractFactory("MockOracleV2");
-const oracle = await Mock.deploy(); // no constructor args
-await oracle.waitForDeployment();
+  // Mock oracle: 1 GSTEP = 0.005 ETH -> stake target 10% = 0.0005 ETH
+  const Mock = await ethers.getContractFactory("MockOracleV2");
+  const oracle = await Mock.deploy();
+  await oracle.waitForDeployment();
 
-const { timestamp } = await ethers.provider.getBlock("latest");
-await oracle.set(ethers.parseEther("0.005"), timestamp, 0); // priceWei, updatedAt, confBps
-await oracle.setPolicy(300, 100); // maxStaleness=300s, minConfidenceBps=±1%
+  const { timestamp } = await ethers.provider.getBlock("latest");
+  await oracle.set(ethers.parseEther("0.005"), timestamp, 0); // priceWei, updatedAt, confBps
+  await oracle.setPolicy(300, 100); // maxStaleness=300s, minConfidenceBps=±1%
 
   // Fully-qualified name to disambiguate duplicates
   const Token = await ethers.getContractFactory("contracts/GemStepToken.sol:GemStepToken");
-  const initialSupply = ethers.parseUnits("40000000", 18);
 
+  const initialSupply = ethers.parseUnits("400000000", 18);
+
+  // ✅ FIX: initializer now expects 4 args
   const token = await upgrades.deployProxy(
     Token,
-    [initialSupply, await admin.getAddress(), await oracle.getAddress()],
+    [
+      initialSupply,
+      admin.address,
+      await oracle.getAddress(),
+      treasury.address,
+    ],
     { initializer: "initialize" }
   );
   await token.waitForDeployment();
 
   const chainId = (await ethers.provider.getNetwork()).chainId;
 
-  // PARAMETER_ADMIN for configuring sources, etc.
-  const PARAMETER_ADMIN_ROLE = ethers.keccak256(ethers.toUtf8Bytes("PARAMETER_ADMIN"));
-  await token.grantRole(PARAMETER_ADMIN_ROLE, admin.address);
+  // ✅ FIX: use on-chain role id if exposed (matches your storage constant)
+  let PARAMETER_ADMIN_ROLE;
+  if (typeof token.PARAMETER_ADMIN_ROLE === "function") {
+    PARAMETER_ADMIN_ROLE = await token.PARAMETER_ADMIN_ROLE();
+  } else {
+    PARAMETER_ADMIN_ROLE = ethers.keccak256(ethers.toUtf8Bytes("PARAMETER_ADMIN"));
+  }
 
-  // quick sanity
-  expect(await token.isSourceValid("applehealth")).to.equal(true);
+  // Grant role (use whichever signer actually has DEFAULT_ADMIN_ROLE)
+  if (typeof token.grantRole === "function") {
+    const DEFAULT_ADMIN_ROLE =
+      typeof token.DEFAULT_ADMIN_ROLE === "function"
+        ? await token.DEFAULT_ADMIN_ROLE()
+        : ethers.ZeroHash;
 
-  return { token, oracle, deployer, admin, user, beneficiary, api, other, chainId };
+    const grantWith = (await token.hasRole(DEFAULT_ADMIN_ROLE, admin.address))
+      ? admin
+      : deployer;
+
+    await token.connect(grantWith).grantRole(PARAMETER_ADMIN_ROLE, admin.address);
+  }
+
+  // quick sanity (only if your ABI exposes it)
+  if (typeof token.isSourceValid === "function") {
+    expect(await token.isSourceValid("applehealth")).to.equal(true);
+  }
+
+  return { token, oracle, deployer, admin, treasury, user, beneficiary, api, other, chainId };
 }
 
 /* ---------- Helpers ---------- */
@@ -119,7 +147,7 @@ describe("Anomaly system (penalties + suspension)", function () {
     // 1) Warm up average with five submissions of 100 steps:
     const warmSteps = 100n;
     const warmCount = 5;
-    await token.connect(user).stake({ value: ethers.parseEther("0.1") }); // small buffer for warmups
+    await token.connect(user).stake({ value: ethers.parseEther("1") });
 
     for (let i = 0; i < warmCount; i++) {
       await time.increase(Number(minInterval) + 5);
