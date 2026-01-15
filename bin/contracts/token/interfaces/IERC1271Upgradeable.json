@@ -1,0 +1,352 @@
+{
+    "contractName": "IERC1271Upgradeable",
+    "abi": [
+        {
+            "inputs": [
+                {
+                    "internalType": "bytes32",
+                    "name": "hash",
+                    "type": "bytes32"
+                },
+                {
+                    "internalType": "bytes",
+                    "name": "signature",
+                    "type": "bytes"
+                }
+            ],
+            "name": "isValidSignature",
+            "outputs": [
+                {
+                    "internalType": "bytes4",
+                    "name": "magicValue",
+                    "type": "bytes4"
+                }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+        },
+        {
+            "inputs": [
+                {
+                    "internalType": "bytes",
+                    "name": "data",
+                    "type": "bytes"
+                },
+                {
+                    "internalType": "bytes",
+                    "name": "signature",
+                    "type": "bytes"
+                }
+            ],
+            "name": "isValidSignature",
+            "outputs": [
+                {
+                    "internalType": "bytes4",
+                    "name": "magicValue",
+                    "type": "bytes4"
+                }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+        }
+    ],
+    "metadata": "{\"compiler\":{\"version\":\"0.8.30+commit.73712a01\"},\"language\":\"Solidity\",\"output\":{\"abi\":[{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"hash\",\"type\":\"bytes32\"},{\"internalType\":\"bytes\",\"name\":\"signature\",\"type\":\"bytes\"}],\"name\":\"isValidSignature\",\"outputs\":[{\"internalType\":\"bytes4\",\"name\":\"magicValue\",\"type\":\"bytes4\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes\",\"name\":\"data\",\"type\":\"bytes\"},{\"internalType\":\"bytes\",\"name\":\"signature\",\"type\":\"bytes\"}],\"name\":\"isValidSignature\",\"outputs\":[{\"internalType\":\"bytes4\",\"name\":\"magicValue\",\"type\":\"bytes4\"}],\"stateMutability\":\"view\",\"type\":\"function\"}],\"devdoc\":{\"details\":\"Standard interface for signature validation by smart contract wallets. Return values:  - 0x1626ba7e => signature is valid  - 0xffffffff => signature is invalid\",\"kind\":\"dev\",\"methods\":{\"isValidSignature(bytes,bytes)\":{\"details\":\"Not used by GemStep, but included for broader compatibility with some wallets.\",\"params\":{\"data\":\"Arbitrary data.\",\"signature\":\"Signature byte array associated with 'data'.\"},\"returns\":{\"magicValue\":\"0x1626ba7e if valid, 0xffffffff otherwise.\"}},\"isValidSignature(bytes32,bytes)\":{\"params\":{\"hash\":\"Keccak256 of the signed data (EIP-191 / EIP-712 digest).\",\"signature\":\"Signature byte array associated with 'hash'.\"},\"returns\":{\"magicValue\":\"0x1626ba7e if valid, 0xffffffff otherwise.\"}}},\"title\":\"ERC-1271 (Upgradeable-friendly) interface\",\"version\":1},\"userdoc\":{\"kind\":\"user\",\"methods\":{\"isValidSignature(bytes,bytes)\":{\"notice\":\"(Optional) Validate arbitrary byte data + signature.\"},\"isValidSignature(bytes32,bytes)\":{\"notice\":\"Validate a hash/signature pair.\"}},\"version\":1}},\"settings\":{\"compilationTarget\":{\"c:/Users/DShar/OneDrive/08-BlockchainDev/8 - GST GemStep_Prod/GSTEP/contracts/token/interfaces/IERC1271Upgradeable.sol\":\"IERC1271Upgradeable\"},\"evmVersion\":\"prague\",\"libraries\":{},\"metadata\":{\"bytecodeHash\":\"ipfs\"},\"optimizer\":{\"enabled\":true,\"runs\":200},\"remappings\":[],\"viaIR\":true},\"sources\":{\"c:/Users/DShar/OneDrive/08-BlockchainDev/8 - GST GemStep_Prod/GSTEP/contracts/token/interfaces/IERC1271Upgradeable.sol\":{\"keccak256\":\"0xb4274bd4239ef9f6297cf8f2459d283977b4211f38a9617d204388b3b70d5f19\",\"license\":\"MIT\",\"urls\":[\"bzz-raw://46d265a6080844a105d5d4ac07aca8e33a36a67d210ea9f16a8a0742b38ec3d5\",\"dweb:/ipfs/QmTu5FNEHWHhJx1TUUwgD2HBsoWeGkf46iKxaXCuvqwTwt\"]}},\"version\":1}",
+    "bytecode": "",
+    "deployedBytecode": "",
+    "sourceMap": "",
+    "deployedSourceMap": "",
+    "sourcePath": "c:/Users/DShar/OneDrive/08-BlockchainDev/8 - GST GemStep_Prod/GSTEP/contracts/token/interfaces/IERC1271Upgradeable.sol",
+    "compiler": {
+        "name": "solc",
+        "version": "0.8.30+commit.73712a01"
+    },
+    "ast": {
+        "absolutePath": "c:/Users/DShar/OneDrive/08-BlockchainDev/8 - GST GemStep_Prod/GSTEP/contracts/token/interfaces/IERC1271Upgradeable.sol",
+        "exportedSymbols": {
+            "IERC1271Upgradeable": [
+                743
+            ]
+        },
+        "id": 744,
+        "license": "MIT",
+        "nodeType": "SourceUnit",
+        "nodes": [
+            {
+                "id": 721,
+                "literals": [
+                    "solidity",
+                    "^",
+                    "0.8",
+                    ".30"
+                ],
+                "nodeType": "PragmaDirective",
+                "src": "33:24:2"
+            },
+            {
+                "abstract": false,
+                "baseContracts": [],
+                "canonicalName": "IERC1271Upgradeable",
+                "contractDependencies": [],
+                "contractKind": "interface",
+                "documentation": {
+                    "id": 722,
+                    "nodeType": "StructuredDocumentation",
+                    "src": "61:239:2",
+                    "text": "@title ERC-1271 (Upgradeable-friendly) interface\n @dev Standard interface for signature validation by smart contract wallets.\n Return values:\n  - 0x1626ba7e => signature is valid\n  - 0xffffffff => signature is invalid"
+                },
+                "fullyImplemented": false,
+                "id": 743,
+                "linearizedBaseContracts": [
+                    743
+                ],
+                "name": "IERC1271Upgradeable",
+                "nameLocation": "310:19:2",
+                "nodeType": "ContractDefinition",
+                "nodes": [
+                    {
+                        "documentation": {
+                            "id": 723,
+                            "nodeType": "StructuredDocumentation",
+                            "src": "337:268:2",
+                            "text": "@notice Validate a hash/signature pair.\n @param hash      Keccak256 of the signed data (EIP-191 / EIP-712 digest).\n @param signature Signature byte array associated with 'hash'.\n @return magicValue 0x1626ba7e if valid, 0xffffffff otherwise."
+                        },
+                        "functionSelector": "1626ba7e",
+                        "id": 732,
+                        "implemented": false,
+                        "kind": "function",
+                        "modifiers": [],
+                        "name": "isValidSignature",
+                        "nameLocation": "620:16:2",
+                        "nodeType": "FunctionDefinition",
+                        "parameters": {
+                            "id": 728,
+                            "nodeType": "ParameterList",
+                            "parameters": [
+                                {
+                                    "constant": false,
+                                    "id": 725,
+                                    "mutability": "mutable",
+                                    "name": "hash",
+                                    "nameLocation": "645:4:2",
+                                    "nodeType": "VariableDeclaration",
+                                    "scope": 732,
+                                    "src": "637:12:2",
+                                    "stateVariable": false,
+                                    "storageLocation": "default",
+                                    "typeDescriptions": {
+                                        "typeIdentifier": "t_bytes32",
+                                        "typeString": "bytes32"
+                                    },
+                                    "typeName": {
+                                        "id": 724,
+                                        "name": "bytes32",
+                                        "nodeType": "ElementaryTypeName",
+                                        "src": "637:7:2",
+                                        "typeDescriptions": {
+                                            "typeIdentifier": "t_bytes32",
+                                            "typeString": "bytes32"
+                                        }
+                                    },
+                                    "visibility": "internal"
+                                },
+                                {
+                                    "constant": false,
+                                    "id": 727,
+                                    "mutability": "mutable",
+                                    "name": "signature",
+                                    "nameLocation": "664:9:2",
+                                    "nodeType": "VariableDeclaration",
+                                    "scope": 732,
+                                    "src": "651:22:2",
+                                    "stateVariable": false,
+                                    "storageLocation": "memory",
+                                    "typeDescriptions": {
+                                        "typeIdentifier": "t_bytes_memory_ptr",
+                                        "typeString": "bytes"
+                                    },
+                                    "typeName": {
+                                        "id": 726,
+                                        "name": "bytes",
+                                        "nodeType": "ElementaryTypeName",
+                                        "src": "651:5:2",
+                                        "typeDescriptions": {
+                                            "typeIdentifier": "t_bytes_storage_ptr",
+                                            "typeString": "bytes"
+                                        }
+                                    },
+                                    "visibility": "internal"
+                                }
+                            ],
+                            "src": "636:38:2"
+                        },
+                        "returnParameters": {
+                            "id": 731,
+                            "nodeType": "ParameterList",
+                            "parameters": [
+                                {
+                                    "constant": false,
+                                    "id": 730,
+                                    "mutability": "mutable",
+                                    "name": "magicValue",
+                                    "nameLocation": "705:10:2",
+                                    "nodeType": "VariableDeclaration",
+                                    "scope": 732,
+                                    "src": "698:17:2",
+                                    "stateVariable": false,
+                                    "storageLocation": "default",
+                                    "typeDescriptions": {
+                                        "typeIdentifier": "t_bytes4",
+                                        "typeString": "bytes4"
+                                    },
+                                    "typeName": {
+                                        "id": 729,
+                                        "name": "bytes4",
+                                        "nodeType": "ElementaryTypeName",
+                                        "src": "698:6:2",
+                                        "typeDescriptions": {
+                                            "typeIdentifier": "t_bytes4",
+                                            "typeString": "bytes4"
+                                        }
+                                    },
+                                    "visibility": "internal"
+                                }
+                            ],
+                            "src": "697:19:2"
+                        },
+                        "scope": 743,
+                        "src": "611:106:2",
+                        "stateMutability": "view",
+                        "virtual": false,
+                        "visibility": "external"
+                    },
+                    {
+                        "documentation": {
+                            "id": 733,
+                            "nodeType": "StructuredDocumentation",
+                            "src": "725:341:2",
+                            "text": "@notice (Optional) Validate arbitrary byte data + signature.\n @dev Not used by GemStep, but included for broader compatibility with some wallets.\n @param data      Arbitrary data.\n @param signature Signature byte array associated with 'data'.\n @return magicValue 0x1626ba7e if valid, 0xffffffff otherwise."
+                        },
+                        "functionSelector": "20c13b0b",
+                        "id": 742,
+                        "implemented": false,
+                        "kind": "function",
+                        "modifiers": [],
+                        "name": "isValidSignature",
+                        "nameLocation": "1081:16:2",
+                        "nodeType": "FunctionDefinition",
+                        "parameters": {
+                            "id": 738,
+                            "nodeType": "ParameterList",
+                            "parameters": [
+                                {
+                                    "constant": false,
+                                    "id": 735,
+                                    "mutability": "mutable",
+                                    "name": "data",
+                                    "nameLocation": "1113:4:2",
+                                    "nodeType": "VariableDeclaration",
+                                    "scope": 742,
+                                    "src": "1098:19:2",
+                                    "stateVariable": false,
+                                    "storageLocation": "calldata",
+                                    "typeDescriptions": {
+                                        "typeIdentifier": "t_bytes_calldata_ptr",
+                                        "typeString": "bytes"
+                                    },
+                                    "typeName": {
+                                        "id": 734,
+                                        "name": "bytes",
+                                        "nodeType": "ElementaryTypeName",
+                                        "src": "1098:5:2",
+                                        "typeDescriptions": {
+                                            "typeIdentifier": "t_bytes_storage_ptr",
+                                            "typeString": "bytes"
+                                        }
+                                    },
+                                    "visibility": "internal"
+                                },
+                                {
+                                    "constant": false,
+                                    "id": 737,
+                                    "mutability": "mutable",
+                                    "name": "signature",
+                                    "nameLocation": "1134:9:2",
+                                    "nodeType": "VariableDeclaration",
+                                    "scope": 742,
+                                    "src": "1119:24:2",
+                                    "stateVariable": false,
+                                    "storageLocation": "calldata",
+                                    "typeDescriptions": {
+                                        "typeIdentifier": "t_bytes_calldata_ptr",
+                                        "typeString": "bytes"
+                                    },
+                                    "typeName": {
+                                        "id": 736,
+                                        "name": "bytes",
+                                        "nodeType": "ElementaryTypeName",
+                                        "src": "1119:5:2",
+                                        "typeDescriptions": {
+                                            "typeIdentifier": "t_bytes_storage_ptr",
+                                            "typeString": "bytes"
+                                        }
+                                    },
+                                    "visibility": "internal"
+                                }
+                            ],
+                            "src": "1097:47:2"
+                        },
+                        "returnParameters": {
+                            "id": 741,
+                            "nodeType": "ParameterList",
+                            "parameters": [
+                                {
+                                    "constant": false,
+                                    "id": 740,
+                                    "mutability": "mutable",
+                                    "name": "magicValue",
+                                    "nameLocation": "1175:10:2",
+                                    "nodeType": "VariableDeclaration",
+                                    "scope": 742,
+                                    "src": "1168:17:2",
+                                    "stateVariable": false,
+                                    "storageLocation": "default",
+                                    "typeDescriptions": {
+                                        "typeIdentifier": "t_bytes4",
+                                        "typeString": "bytes4"
+                                    },
+                                    "typeName": {
+                                        "id": 739,
+                                        "name": "bytes4",
+                                        "nodeType": "ElementaryTypeName",
+                                        "src": "1168:6:2",
+                                        "typeDescriptions": {
+                                            "typeIdentifier": "t_bytes4",
+                                            "typeString": "bytes4"
+                                        }
+                                    },
+                                    "visibility": "internal"
+                                }
+                            ],
+                            "src": "1167:19:2"
+                        },
+                        "scope": 743,
+                        "src": "1072:115:2",
+                        "stateMutability": "view",
+                        "virtual": false,
+                        "visibility": "external"
+                    }
+                ],
+                "scope": 744,
+                "src": "300:890:2",
+                "usedErrors": [],
+                "usedEvents": []
+            }
+        ],
+        "src": "33:1159:2"
+    },
+    "functionHashes": {
+        "isValidSignature(bytes,bytes)": "20c13b0b",
+        "isValidSignature(bytes32,bytes)": "1626ba7e"
+    },
+    "gasEstimates": null
+}

@@ -142,12 +142,24 @@ abstract contract GS_Views is GemStepCore {
 
     /* ======================= Constants (packed) ======================== */
 
-    /// Fixed layout (16 items):
-    /// 0 INITIAL_SUPPLY, 1 REWARD_RATE_BASE, 2 SECONDS_PER_MONTH, 3 MAX_REWARD_RATE,
-    /// 4 PERCENTAGE_BASE, 5 DEFAULT_SIGNATURE_VALIDITY, 6 MAX_SIGNATURE_VALIDITY,
-    /// 7 MIN_BURN_AMOUNT, 8 MIN_REWARD_AMOUNT, 9 ANOMALY_THRESHOLD,
-    /// 10 MIN_AVERAGE_FOR_ANOMALY, 11 GRACE_PERIOD, 12 MAX_PROOF_LENGTH,
-    /// 13 MAX_VERSION_LENGTH, 14 TARGET_STAKE_PERCENT, 15 MONTHLY_MINT_LIMIT
+    /// @notice Batched public constants as a fixed array to avoid large tuples.
+    /// @dev Layout (16 items):
+    /// [0]=INITIAL_SUPPLY
+    /// [1]=REWARD_RATE_BASE
+    /// [2]=SECONDS_PER_MONTH
+    /// [3]=MAX_REWARD_RATE
+    /// [4]=PERCENTAGE_BASE
+    /// [5]=DEFAULT_SIGNATURE_VALIDITY
+    /// [6]=MAX_SIGNATURE_VALIDITY
+    /// [7]=MIN_BURN_AMOUNT
+    /// [8]=MIN_STEPS
+    /// [9]=ANOMALY_THRESHOLD
+    /// [10]=MIN_AVERAGE_FOR_ANOMALY
+    /// [11]=GRACE_PERIOD
+    /// [12]=MAX_PROOF_LENGTH
+    /// [13]=MAX_VERSION_LENGTH
+    /// [14]=TARGET_STAKE_PERCENT
+    /// [15]=MONTHLY_MINT_LIMIT
     function getPublicConstantsPacked() external pure returns (uint256[16] memory out) {
         out[0]  = INITIAL_SUPPLY;
         out[1]  = REWARD_RATE_BASE;
@@ -241,4 +253,144 @@ abstract contract GS_Views is GemStepCore {
     {
         return (currentStakePerStep, lastStakeAdjustment, stakeParamsLocked);
     }
+    
+    /* ============================== Core Params ============================== */
+
+/**
+ * @notice Returns core token and verification parameters.
+ * @dev
+ *  - `burnFee` is retained for **storage/layout compatibility only**.
+ *    GemStep no longer applies fee-on-transfer logic.
+ *  - `rewardRate` is the gross reward per step (before mint split).
+ *  - `stepLimit` is the per-submission cap enforced during step logging.
+ *  - `signatureValidityPeriod` bounds EIP-712 signature deadlines.
+ *
+ * @return _burnFee                   Legacy burn fee (unused, preserved)
+ * @return _rewardRate                Reward per step (18 decimals)
+ * @return _stepLimit                 Maximum steps per submission
+ * @return _signatureValidityPeriod   Max allowed signature validity window
+ */
+function getCoreParams()
+    external
+    view
+    returns (
+        uint256 _burnFee,
+        uint256 _rewardRate,
+        uint256 _stepLimit,
+        uint256 _signatureValidityPeriod
+    )
+{
+    return (
+        burnFee,
+        rewardRate,
+        stepLimit,
+        signatureValidityPeriod
+    );
+}
+
+/**
+ * @notice Returns the current emergency withdrawal configuration.
+ * @dev
+ *  Emergency withdrawals require:
+ *   1. `enabled == true`
+ *   2. `block.timestamp >= unlockTime`
+ *
+ * @return enabled     Whether emergency withdrawals are enabled
+ * @return unlockTime  Earliest timestamp withdrawals are permitted
+ */
+function getEmergencyStatus()
+    external
+    view
+    returns (bool enabled, uint256 unlockTime)
+{
+    return (
+        emergencyWithdrawEnabled,
+        emergencyWithdrawUnlockTime
+    );
+}
+
+/**
+ * @notice Returns global reward distribution tracking values.
+ * @dev
+ *  - `distributedTotal` is cumulative net supply increase (after burns).
+ *  - `currentMonthlyCap` reflects the active mint cap for the current month,
+ *    after any halving adjustments.
+ *
+ * @return _distributedTotal   Total tokens distributed to date
+ * @return _currentMonthlyCap  Active monthly mint cap
+ */
+function getDistribution()
+    external
+    view
+    returns (
+        uint256 _distributedTotal,
+        uint256 _currentMonthlyCap
+    )
+{
+    return (
+        distributedTotal,
+        currentMonthlyCap
+    );
+}
+
+/**
+ * @notice Returns current staking and fraud-prevention parameters.
+ * @dev
+ *  - `stakePerStep` is dynamically adjusted via the price oracle.
+ *  - `lastAdjustTs` tracks the last successful adjustment timestamp.
+ *  - `locked` disables both oracle-based and manual adjustments when true.
+ *
+ * @return stakePerStep  Required stake (wei) per step
+ * @return lastAdjustTs Timestamp of last adjustment
+ * @return locked       Whether stake parameters are locked
+ */
+function getStakeParams()
+    external
+    view
+    returns (
+        uint256 stakePerStep,
+        uint256 lastAdjustTs,
+        bool locked
+    )
+{
+    return (
+        currentStakePerStep,
+        lastStakeAdjustment,
+        stakeParamsLocked
+    );
+}
+
+/**
+ * @notice Returns immutable staking policy constants.
+ * @dev
+ *  These values define the allowed bounds and timing for dynamic stake calibration:
+ *   - `minStakePerStep` is the absolute lower bound for stake required per step.
+ *   - `maxStakePerStep` is the absolute upper bound for stake required per step.
+ *   - `adjustCooldown` is the minimum time that must elapse between successive
+ *     stake parameter adjustments (oracle-based or manual).
+ *
+ *  All values are compile-time constants and do not depend on contract state.
+ *  This function is intentionally `pure` to keep gas usage minimal and
+ *  bytecode small.
+ *
+ * @return minStakePerStep  Minimum stake required per step (wei)
+ * @return maxStakePerStep  Maximum stake required per step (wei)
+ * @return adjustCooldown   Cooldown period between stake adjustments (seconds)
+ */
+function getStakeConstants()
+    external
+    pure
+    returns (
+        uint256 minStakePerStep,
+        uint256 maxStakePerStep,
+        uint256 adjustCooldown
+    )
+{
+    return (
+        MIN_STAKE_PER_STEP,
+        MAX_STAKE_PER_STEP,
+        STAKE_ADJUST_COOLDOWN
+    );
+}
+
 }

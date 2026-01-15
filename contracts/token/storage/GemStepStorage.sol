@@ -5,15 +5,31 @@ pragma solidity ^0.8.30;
 /// @notice Pure storage + constants + events + structs for GemStep.
 /// IMPORTANT: Order preserved to keep storage layout identical across upgrades.
 abstract contract GemStepStorage {
-    // ====================== Roles ====================== //
-    // Keep these public: tests/tooling often read them directly.
-    bytes32 internal constant PAUSER_ROLE           = keccak256("PAUSER_ROLE");
-    bytes32 internal constant MINTER_ROLE           = keccak256("MINTER_ROLE");
-    bytes32 internal constant SIGNER_ROLE           = keccak256("SIGNER_ROLE");
-    bytes32 internal constant PARAMETER_ADMIN_ROLE  = keccak256("PARAMETER_ADMIN");
-    bytes32 internal constant EMERGENCY_ADMIN_ROLE  = keccak256("EMERGENCY_ADMIN");
-    bytes32 internal constant UPGRADER_ROLE         = keccak256("UPGRADER_ROLE");
-    bytes32 internal constant API_SIGNER_ROLE       = keccak256("API_SIGNER_ROLE");
+    /* =============================================================
+                                   ROLES
+       ============================================================= */
+
+    /// @notice Role allowing pause/unpause.
+    /// @dev Tests/tooling often read these directly, so keep them public.
+    bytes32 internal constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
+
+    /// @notice Role allowing privileged mint operations (where exposed).
+    bytes32 internal constant MINTER_ROLE = keccak256("MINTER_ROLE");
+
+    /// @notice Role for off-chain signature authorizers (general).
+    bytes32 internal constant SIGNER_ROLE = keccak256("SIGNER_ROLE");
+
+    /// @notice Role for updating parameters and allowlists.
+    bytes32 internal constant PARAMETER_ADMIN_ROLE = keccak256("PARAMETER_ADMIN_ROLE");
+
+    /// @notice Role for emergency controls (withdrawals, overrides).
+    bytes32 internal constant EMERGENCY_ADMIN_ROLE = keccak256("EMERGENCY_ADMIN");
+
+    /// @notice Role for upgrade authorization (proxy admin / upgrade executor).
+    bytes32 internal constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
+
+    /// @notice Role for API-side signing keys used by trusted relayers.
+    bytes32 internal constant API_SIGNER_ROLE = keccak256("API_SIGNER_ROLE");
 
     // ====================== EIP-712 Types =============== //
     bytes32 internal constant STEPLOG_TYPEHASH = keccak256(
@@ -26,10 +42,18 @@ abstract contract GemStepStorage {
     bytes32 internal constant ATTESTATION_V2_TYPEHASH =
         keccak256("Attestation(address user,uint256 steps,uint256 timestamp,bytes32 vHash,uint256 userNonce)");
 
-    // ====================== Centralized Domain/Payload Constants ====================== //
-    string  public constant DOMAIN_NAME             = "GemStep";
-    string  public constant DOMAIN_VERSION          = "1.0.0"; // bump only to intentionally break old signatures
-    string  internal constant DEFAULT_PAYLOAD_VERSION = "1.0.0";
+    /* =============================================================
+                     DOMAIN / PAYLOAD VERSION CONSTANTS
+       ============================================================= */
+
+    /// @notice EIP-712 domain name.
+    string public constant DOMAIN_NAME = "GemStep";
+
+    /// @notice EIP-712 domain version (bump only to intentionally invalidate old signatures).
+    string public constant DOMAIN_VERSION = "1.0.0";
+
+    /// @notice Default payload schema/version used by clients.
+    string internal constant DEFAULT_PAYLOAD_VERSION = "1.0.0";
 
     // ====================== Token & Policy Constants ====================== //
     uint8    public constant DECIMALS = 18;
@@ -45,51 +69,100 @@ abstract contract GemStepStorage {
     uint256  internal constant MIN_SOURCE_LENGTH = 3;
     uint256  internal constant MAX_SOURCE_LENGTH = 20;
 
-    uint256  internal constant EMERGENCY_DELAY = 2 days;
+    /// @notice Delay applied when enabling emergency withdrawals.
+    uint256 internal constant EMERGENCY_DELAY = 2 days;
 
-    uint256  internal constant MIN_BURN_AMOUNT   = 1 * 10 ** DECIMALS;
-    uint256  internal constant MIN_REWARD_AMOUNT = 1 * 10 ** DECIMALS;
+    /// @dev Minimum burn amount (generic minimum). Kept as policy anchor.
+    uint256 internal constant MIN_BURN_AMOUNT = 1 * 10 ** DECIMALS;
 
-    uint256  internal constant MONTHLY_MINT_LIMIT = 200_000 * 10 ** DECIMALS;
+    /// @dev Minimum steps allowed per submission.
+    uint256 internal constant MIN_STEPS = 1;
+
+    /// @notice Base monthly mint cap (policy). Current cap may change with halving schedule.
+    uint256 internal constant MONTHLY_MINT_LIMIT = 2_000_000 * 10 ** DECIMALS;
 
     uint256  internal constant MAX_BATCH_SIGNERS        = 20;
     uint256  internal constant MAX_SIGNATURE_CLEARANCE  = 50;
     uint256  internal constant MAX_BATCH_SOURCES        = 10;
 
-    uint256  internal constant REWARD_RATE_BASE    = 1 * 10 ** DECIMALS;
-    uint256  internal constant SECONDS_PER_MONTH   = 30 days;
+    /// @notice Month length used for cap rollover (fixed 30 days).
+    uint256 internal constant SECONDS_PER_MONTH = 30 days;
 
-    uint256  internal constant PENALTY_PERCENT         = 30;       // %
-    uint256  internal constant MAX_STEPS_PER_DAY       = 10_000;
-    uint256  internal constant MIN_SUBMISSION_INTERVAL = 1 hours;
-    uint256  internal constant SUSPENSION_DURATION     = 30 days;
+    /// @notice Anomaly penalty percentage (0-100).
+    uint256 internal constant PENALTY_PERCENT = 30;
 
-    uint256  internal constant ANOMALY_THRESHOLD        = 5;       // 5x average (default)
-    uint256  internal constant MIN_AVERAGE_FOR_ANOMALY  = 500;     // scaled avg ≥500 (~5 steps if ×100 scaling)
-    uint256  internal constant GRACE_PERIOD             = 7 days;  // grace period for new users
-    uint256  internal constant MAX_PROOF_LENGTH         = 32;
-    uint256  internal constant MAX_VERSION_LENGTH       = 32;
+    /// @notice Maximum steps per day (per-source default).
+    uint256 internal constant MAX_STEPS_PER_DAY = 10_000;
 
-    uint256  internal constant MIN_STAKE_PER_STEP     = 0.0000001 ether;
-    uint256  internal constant MAX_STAKE_PER_STEP     = 0.001 ether;
-    uint256  internal constant STAKE_ADJUST_COOLDOWN  = 1 days;
-    uint256  internal constant TARGET_STAKE_PERCENT   = 10; // 10% of token value (in ETH)
+    /// @notice Minimum submission interval (per-source default).
+    uint256 internal constant MIN_SUBMISSION_INTERVAL = 1 hours;
 
-    // ====================== State ====================== //
+    /// @notice Suspension duration after repeated anomaly flags.
+    uint256 internal constant SUSPENSION_DURATION = 30 days;
+
+    /// @notice Default anomaly threshold multiplier (e.g. 5 => 5x average).
+    uint256 internal constant ANOMALY_THRESHOLD = 5;
+
+    /// @dev Minimum average (scaled) required before anomaly checks apply.
+    uint256 internal constant MIN_AVERAGE_FOR_ANOMALY = 500;
+
+    /// @notice Grace period for new users before anomaly checks apply.
+    uint256 internal constant GRACE_PERIOD = 7 days;
+
+    /// @dev Upper bounds for calldata sizes (defensive; protects gas / DoS).
+    uint256 internal constant MAX_PROOF_LENGTH = 32;
+    uint256 internal constant MAX_VERSION_LENGTH = 32;
+
+    /// @notice Minimum stake-per-step in ETH (wei).
+    uint256 internal constant MIN_STAKE_PER_STEP = 0.0000001 ether;
+
+    /// @notice Maximum stake-per-step in ETH (wei).
+    uint256 internal constant MAX_STAKE_PER_STEP = 0.001 ether;
+
+    /// @notice Cooldown between oracle-driven stake requirement adjustments.
+    uint256 internal constant STAKE_ADJUST_COOLDOWN = 1 days;
+
+    /// @dev Target stake policy percent (derived from oracle price, in ETH terms).
+    uint256 internal constant TARGET_STAKE_PERCENT = 10;
+
+    /* =============================================================
+                                   STATE
+       ============================================================= */
+
+    /// @notice Retained for storage compatibility (fee-on-transfer removed elsewhere).
     uint256 internal burnFee;
+
+    /// @notice Current reward rate (tokens per step).
     uint256 internal rewardRate;
+
+    /// @notice Maximum steps per submission.
     uint256 internal stepLimit;
+
+    /// @notice Max acceptable deadline distance into the future.
     uint256 internal signatureValidityPeriod;
 
-    bool     internal emergencyWithdrawEnabled;
-    uint256  internal emergencyWithdrawUnlockTime;
+    /// @notice Emergency withdrawals enabled flag.
+    bool internal emergencyWithdrawEnabled;
+
+    /// @notice Earliest time emergency withdrawals can be executed after enabling.
+    uint256 internal emergencyWithdrawUnlockTime;
 
     uint256 internal monthlyMintLimit;
+
+    /// @notice Amount minted (net) in current month window.
     uint256 internal currentMonthMinted;
+
+    /// @dev Current month index (timestamp / SECONDS_PER_MONTH).
     uint256 internal currentMonth;
     uint256 internal lastMonthUpdate;
+
+    /// @notice Cumulative distributed total used for halving threshold tracking.
     uint256 internal distributedTotal;
+
+    /// @notice Current monthly cap (may change via halving schedule).
     uint256 internal currentMonthlyCap;
+
+    /// @notice Halving counter.
     uint256 internal halvingCount;
 
     address internal initialAdmin;
@@ -103,15 +176,25 @@ abstract contract GemStepStorage {
     address internal l1Validator;
     address payable internal arbEthBridge;
 
-    address public priceOracle; // store address only; cast where used
+    /// @dev Price oracle address (cast to interface where used).
+    address internal priceOracle;
 
+    /// @notice Current stake required per step (wei).
     uint256 internal currentStakePerStep;
+
+    /// @notice Timestamp of last stake parameter adjustment.
     uint256 internal lastStakeAdjustment;
-    bool    internal stakeParamsLocked;
+
+    /// @notice Emergency lock on stake parameter changes.
+    bool internal stakeParamsLocked;
 
     // Mappings
     mapping(string => bool) internal validSources;
-    mapping(bytes32 => bool) internal usedSignatures;
+
+    /// @dev Replay protection for EIP-712 signatures (sigHash => used).
+    mapping(bytes32 => bool) public usedSignatures;
+
+    /// @dev Optional expiry for signature hashes to support batch cleanup.
     mapping(bytes32 => uint256) internal signatureExpiry;
     mapping(string => uint256) internal changeTimelocks;
     mapping(address => uint256) public nonces;

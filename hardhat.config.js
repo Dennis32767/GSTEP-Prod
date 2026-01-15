@@ -73,9 +73,7 @@ const EFFECTIVE_YUL = USE_IR ? true : YUL;
 
 // Optional Yul steps bias (leave blank for defaults)
 const YUL_STEPS = process.env.YUL_STEPS || "";
-
-// EVM version (pin to shanghai; allow env override)
-const EVM_VERSION = (process.env.EVM_VERSION || "shanghai").toLowerCase();
+const EVM_VERSION = (process.env.EVM_VERSION || "osaka").toLowerCase();
 
 const PRINT_BUILD = envBool(process.env.PRINT_BUILD, false);
 
