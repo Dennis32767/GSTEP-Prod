@@ -1,14 +1,16 @@
 // test/fixtures.js
 /* eslint-disable no-console */
+// @ts-nocheck
 const { ethers, upgrades } = require("hardhat");
 
-const INITIAL_SUPPLY = ethers.parseUnits("40000000", 18);
+// ✅ MUST match GemStepStorage/GemStepCore INITIAL_SUPPLY constant:
+// 400_000_000 * 1e18
+const INITIAL_SUPPLY = ethers.parseUnits("400000000", 18);
 
 /** Best-effort helper: call a function iff it exists, ignore errors. */
 async function tryTx(obj, fn, ...args) {
   try {
-    // Will throw if fn missing in iface; catch below
-    obj.interface.getFunction(fn);
+    obj.interface.getFunction(fn); // throws if not found
     const tx = await obj[fn](...args);
     await tx.wait?.();
     return true;
@@ -19,7 +21,7 @@ async function tryTx(obj, fn, ...args) {
 
 /** Enable a source and disable proof/attestation requirements (if supported). */
 async function enableSourceNoProofNoAttestation(token, admin, source = "fitbit") {
-  // Newer single-call config (enabled, requireProof, requireAttestation)
+  // Newer single-call config: configureSource(source, enabled, requireProof, requireAttestation)
   if (await tryTx(token.connect(admin), "configureSource", source, true, false, false)) return;
 
   // Older variants
@@ -42,11 +44,12 @@ async function maybeWireProxyAdminToTimelock(token, timelock, admin) {
 
   const proxy = await token.getAddress();
   const paAddr = await upgrades.erc1967.getAdminAddress(proxy);
+
   const pa = await ethers.getContractAt(
     [
       "function owner() view returns (address)",
       "function transferOwnership(address newOwner)",
-      // optional two-step API (older/newer forks)
+      // optional two-step API
       "function pendingOwner() view returns (address)",
       "function acceptOwnership()",
     ],
@@ -64,11 +67,10 @@ async function maybeWireProxyAdminToTimelock(token, timelock, admin) {
   console.log(`[fixture] Transferring ProxyAdmin @ ${paAddr} to Timelock @ ${tl}...`);
   await (await pa.transferOwnership(tl)).wait();
 
-  // If the PA is Ownable2Step, let TL accept; otherwise this no-ops.
+  // If Ownable2Step, let TL accept (local hardhat only)
   try {
     const pending = await pa.pendingOwner();
     if (pending && pending.toLowerCase() === tl.toLowerCase()) {
-      // Impersonate TL locally to accept (tests run on hardhat network)
       await ethers.provider.send("hardhat_impersonateAccount", [tl]);
       const tlSigner = await ethers.getSigner(tl);
       const paAsTL = pa.connect(tlSigner);
@@ -83,52 +85,120 @@ async function maybeWireProxyAdminToTimelock(token, timelock, admin) {
   console.log(`[fixture] ProxyAdmin.owner = ${after}`);
 }
 
-async function deployGemStepFixture() {
-  const [admin, user1, user2, ...rest] = await ethers.getSigners();
+/**
+ * Detect who received initial supply (treasury vs admin vs deployer),
+ * and return a signer that can fund test accounts.
+ */
+async function resolveInitialHolder(token, candidates) {
+  let best = null;
 
-  // 1) Timelock (minDelay small for tests; proposer/executor = admin so tests can operate)
+  for (const s of candidates) {
+    try {
+      const bal = await token.balanceOf(s.address);
+      if (bal > 0n) {
+        if (!best || bal > best.bal) best = { signer: s, bal };
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return best; // { signer, bal } | null
+}
+
+/**
+ * Seed test accounts with tokens from the true initial holder.
+ * This fixes the mass ERC20InsufficientBalance failures when initialize mints to treasury.
+ */
+async function seedUsers(token, funderSigner, recipients, amountEach) {
+  for (const r of recipients) {
+    if (!r) continue;
+    await (await token.connect(funderSigner).transfer(r.address, amountEach)).wait();
+  }
+}
+
+async function deployGemStepFixture() {
+  /**
+   * Signers:
+   * - admin: receives roles in initialize()
+   * - treasury: receives the INITIAL_SUPPLY mint in initialize() (in your current design)
+   */
+  const [admin, treasury, user1, user2, ...rest] = await ethers.getSigners();
+
+  // 1) Timelock (small delay for tests)
   const Timelock = await ethers.getContractFactory("TimelockController");
   const timelock = await Timelock.deploy(
-    60,                // minDelay
-    [admin.address],   // proposers
-    [admin.address],   // executors
-    admin.address      // admin
+    60,              // minDelay
+    [admin.address], // proposers
+    [admin.address], // executors
+    admin.address    // admin
   );
   await timelock.waitForDeployment();
 
-  // 2) Mock oracle (matches token initializer)
- const Mock = await ethers.getContractFactory("MockOracleV2");
-const priceOracle = await Mock.deploy(); // no constructor args
-await priceOracle.waitForDeployment();
+  // 2) Mock oracle (matches initializer: address _priceOracle)
+  const Mock = await ethers.getContractFactory("MockOracleV2");
+  const priceOracle = await Mock.deploy();
+  await priceOracle.waitForDeployment();
 
-const { timestamp } = await ethers.provider.getBlock("latest");
-await priceOracle.set(ethers.parseEther("0.005"), timestamp, 0); // priceWei, updatedAt, confBps
-await priceOracle.setPolicy(300, 100); // maxStaleness=300s, minConfidenceBps=±1%
+  // Some repos call this `set(uint256,uint256,uint256)`; keep best-effort compatibility
+  const latest = await ethers.provider.getBlock("latest");
+  const ts = latest?.timestamp ?? Math.floor(Date.now() / 1000);
 
-// 3) Deploy proxy token (initializer: initialSupply, admin, oracle)
-const Token = await ethers.getContractFactory("GemStepToken");
-const token = await upgrades.deployProxy(
-  Token,
-  [INITIAL_SUPPLY, admin.address, await priceOracle.getAddress()],
-  { kind: "transparent", timeout: 180000 }
-);
-await token.waitForDeployment();
+  await tryTx(priceOracle, "set", ethers.parseEther("0.005"), ts, 0); // priceWei, updatedAt, confBps
+  await tryTx(priceOracle, "setPolicy", 300, 100); // maxStaleness=300s, minConfidenceBps=±1%
 
-  // 4) Pre-enable a usable source for the step-submission tests (best-effort)
+  // 3) Deploy proxy token
+  // initialize(uint256 initialSupply, address admin, address _priceOracle, address _treasury)
+  const GemStepToken = await ethers.getContractFactory("GemStepToken");
+
+  const token = await upgrades.deployProxy(
+    GemStepToken,
+    [
+      INITIAL_SUPPLY,                  // ✅ must equal contract constant INITIAL_SUPPLY
+      admin.address,                   // admin
+      await priceOracle.getAddress(),  // _priceOracle
+      treasury.address,                // _treasury
+    ],
+    { initializer: "initialize" }
+  );
+  await token.waitForDeployment();
+
+  // 4) Make "fitbit" usable for tests (best-effort across module versions)
   await enableSourceNoProofNoAttestation(token, admin, "fitbit");
 
-  // 5) (Optional) have the Timelock own the ProxyAdmin (toggle with env)
+  // 5) Determine who actually holds the initial supply (treasury vs admin vs deployer)
+  const holder = await resolveInitialHolder(token, [treasury, admin, ...rest].slice(0, 3));
+  if (!holder) {
+    // Hard fail with a useful message instead of cascading test failures later
+    const aBal = await token.balanceOf(admin.address);
+    const tBal = await token.balanceOf(treasury.address);
+    throw new Error(
+      `[fixture] Could not find initial supply holder. adminBal=${aBal} treasuryBal=${tBal}`
+    );
+  }
+
+  // 6) Seed users so tests that stake/transfer don’t explode under coverage
+  // Tune this if you need more/less in tests.
+  const SEED_EACH = ethers.parseUnits("10000", 18);
+  await seedUsers(token, holder.signer, [user1, user2], SEED_EACH);
+
+  // 7) Optional: Timelock owns ProxyAdmin
   await maybeWireProxyAdminToTimelock(token, timelock, admin);
 
   return {
     token,
     admin,
+    treasury,
     user1,
     user2,
     rest,
     timelock,
     priceOracle,
+    INITIAL_SUPPLY,
+    // useful debugging
+    initialHolder: holder.signer.address,
+    initialHolderBalance: holder.bal,
   };
 }
 
-module.exports = { deployGemStepFixture };
+module.exports = { deployGemStepFixture, INITIAL_SUPPLY };

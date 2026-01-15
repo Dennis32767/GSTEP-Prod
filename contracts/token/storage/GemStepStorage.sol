@@ -1,9 +1,21 @@
-// contracts/token/core/GemStepStorage.sol
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.30;
 
+/// @title GemStepStorage
 /// @notice Pure storage + constants + events + structs for GemStep.
-/// IMPORTANT: Order preserved to keep storage layout identical across upgrades.
+/// @dev
+///  IMPORTANT STORAGE-LAYOUT RULES (Upgradeable):
+///  - **Do not reorder** state variables, structs, or mappings.
+///  - **Do not change** visibility/types of existing state variables.
+///  - New variables must be appended only (or consumed from `__gap` if you manage it carefully).
+///  - Constants/events/struct definitions do not consume storage slots, but keep ordering stable anyway
+///    to reduce upgrade review risk and maintain audit parity.
+///
+///  This contract is intended to be inherited by core/modules. It contains:
+///  - Role identifiers and EIP-712 typehash constants
+///  - Tokenomics and policy constants
+///  - State variables and mappings
+///  - Events and shared data structures
 abstract contract GemStepStorage {
     /* =============================================================
                                    ROLES
@@ -31,14 +43,20 @@ abstract contract GemStepStorage {
     /// @notice Role for API-side signing keys used by trusted relayers.
     bytes32 internal constant API_SIGNER_ROLE = keccak256("API_SIGNER_ROLE");
 
-    // ====================== EIP-712 Types =============== //
+    /* =============================================================
+                               EIP-712 TYPEHASHES
+       ============================================================= */
+
+    /// @dev EIP-712 StepLog typehash.
     bytes32 internal constant STEPLOG_TYPEHASH = keccak256(
         "StepLog(address user,address beneficiary,uint256 steps,uint256 nonce,uint256 deadline,uint256 chainId,string source,string version)"
     );
-    // Legacy attestation (no nonce)
+
+    /// @dev Legacy attestation typehash (no nonce-binding).
     bytes32 internal constant ATTESTATION_TYPEHASH =
         keccak256("Attestation(address user,uint256 steps,uint256 timestamp,string version)");
-    // NEW: Nonce-bound attestation
+
+    /// @dev Nonce-bound attestation typehash (v2).
     bytes32 internal constant ATTESTATION_V2_TYPEHASH =
         keccak256("Attestation(address user,uint256 steps,uint256 timestamp,bytes32 vHash,uint256 userNonce)");
 
@@ -55,19 +73,45 @@ abstract contract GemStepStorage {
     /// @notice Default payload schema/version used by clients.
     string internal constant DEFAULT_PAYLOAD_VERSION = "1.0.0";
 
-    // ====================== Token & Policy Constants ====================== //
-    uint8    public constant DECIMALS = 18;
-    uint256  internal constant INITIAL_SUPPLY = 40_000_000 * 10 ** DECIMALS;
-    uint256  internal constant MAX_SUPPLY     = 100_000_000 * 10 ** DECIMALS;
+    /* =============================================================
+                         TOKENOMICS / POLICY CONSTANTS
+       ============================================================= */
 
-    uint256  internal constant MAX_REWARD_RATE = 10 * 10 ** DECIMALS;
-    uint256  internal constant PERCENTAGE_BASE = 100;
+    /// @notice Token decimals (ERC20).
+    uint8 public constant DECIMALS = 18;
 
-    uint256  internal constant DEFAULT_SIGNATURE_VALIDITY = 10 minutes;
-    uint256  internal constant MAX_SIGNATURE_VALIDITY     = 30 minutes;
+    /// @dev Initial supply (minted during initialize).
+    uint256 internal constant INITIAL_SUPPLY = 400_000_000 * 10 ** DECIMALS;
 
-    uint256  internal constant MIN_SOURCE_LENGTH = 3;
-    uint256  internal constant MAX_SOURCE_LENGTH = 20;
+    /// @dev Maximum supply (hard cap).
+    uint256 internal constant MAX_SUPPLY = 1_000_000_000 * 10 ** DECIMALS;
+
+    /// @dev Default reward rate (tokens per step, 18 decimals). Example: 0.001 GSTEP/step.
+    uint256 internal constant REWARD_RATE_BASE = 1e15;
+
+    /// @dev Maximum allowed reward rate by governance policy. Example: 0.01 GSTEP/step.
+    uint256 internal constant MAX_REWARD_RATE = 1e16;
+
+    /// @dev Percent helper base (100%).
+    uint256 internal constant PERCENTAGE_BASE = 100;
+
+    /// @dev Basis points helper base (10,000 bps).
+    uint256 internal constant BPS_BASE = 10_000;
+
+    /// @dev Reward split (basis points): 80% user / 10% burn / 10% treasury.
+    uint256 internal constant REWARD_USER_BPS = 8000;
+    uint256 internal constant REWARD_BURN_BPS = 1000;
+    uint256 internal constant REWARD_TREASURY_BPS = 1000;
+
+    /// @dev Default signature validity window.
+    uint256 internal constant DEFAULT_SIGNATURE_VALIDITY = 1 hours;
+
+    /// @dev Maximum allowed signature validity window.
+    uint256 internal constant MAX_SIGNATURE_VALIDITY = 7 days;
+
+    /// @dev Min/Max source string lengths.
+    uint256 internal constant MIN_SOURCE_LENGTH = 3;
+    uint256 internal constant MAX_SOURCE_LENGTH = 20;
 
     /// @notice Delay applied when enabling emergency withdrawals.
     uint256 internal constant EMERGENCY_DELAY = 2 days;
@@ -81,9 +125,10 @@ abstract contract GemStepStorage {
     /// @notice Base monthly mint cap (policy). Current cap may change with halving schedule.
     uint256 internal constant MONTHLY_MINT_LIMIT = 2_000_000 * 10 ** DECIMALS;
 
-    uint256  internal constant MAX_BATCH_SIGNERS        = 20;
-    uint256  internal constant MAX_SIGNATURE_CLEARANCE  = 50;
-    uint256  internal constant MAX_BATCH_SOURCES        = 10;
+    /// @dev Batch bounds.
+    uint256 internal constant MAX_BATCH_SIGNERS = 20;
+    uint256 internal constant MAX_SIGNATURE_CLEARANCE = 50;
+    uint256 internal constant MAX_BATCH_SOURCES = 10;
 
     /// @notice Month length used for cap rollover (fixed 30 days).
     uint256 internal constant SECONDS_PER_MONTH = 30 days;
@@ -147,6 +192,7 @@ abstract contract GemStepStorage {
     /// @notice Earliest time emergency withdrawals can be executed after enabling.
     uint256 internal emergencyWithdrawUnlockTime;
 
+    /// @dev Base monthly limit (internal policy anchor).
     uint256 internal monthlyMintLimit;
 
     /// @notice Amount minted (net) in current month window.
@@ -154,6 +200,8 @@ abstract contract GemStepStorage {
 
     /// @dev Current month index (timestamp / SECONDS_PER_MONTH).
     uint256 internal currentMonth;
+
+    /// @dev Timestamp of last month rollover update.
     uint256 internal lastMonthUpdate;
 
     /// @notice Cumulative distributed total used for halving threshold tracking.
@@ -165,10 +213,19 @@ abstract contract GemStepStorage {
     /// @notice Halving counter.
     uint256 internal halvingCount;
 
+    /// @dev Initial admin captured at initialize for one-time role migration.
     address internal initialAdmin;
-    bool    internal adminRoleTransferred;
+
+    /// @dev One-time admin role transfer guard.
+    bool internal adminRoleTransferred;
+
+    /// @dev Multisig governance sink (optional).
     address internal multisig;
 
+    /// @notice Treasury address used by reward split mints.
+    address public treasury;
+
+    /// @dev Arbitrum retryable config and L1 validation wiring.
     address internal arbitrumInbox;
     uint256 internal arbMaxGas;
     uint256 internal arbGasPriceBid;
@@ -188,7 +245,11 @@ abstract contract GemStepStorage {
     /// @notice Emergency lock on stake parameter changes.
     bool internal stakeParamsLocked;
 
-    // Mappings
+    /* =============================================================
+                                  MAPPINGS
+       ============================================================= */
+
+    /// @dev Source validity registry.
     mapping(string => bool) internal validSources;
 
     /// @dev Replay protection for EIP-712 signatures (sigHash => used).
@@ -196,14 +257,29 @@ abstract contract GemStepStorage {
 
     /// @dev Optional expiry for signature hashes to support batch cleanup.
     mapping(bytes32 => uint256) internal signatureExpiry;
-    mapping(string => uint256) internal changeTimelocks;
-    mapping(address => uint256) public nonces;
-    mapping(address => uint256) internal totalSteps;
-    mapping(address => string)  internal lastSource;
-    mapping(address => bool)    public trustedERC1271Contracts;
-    mapping(address => bool)    public approvedRecipients;
-    mapping(bytes32 => bool)    internal usedLeaves;
 
+    /// @dev Timelocks for parameter changes (if used by other modules).
+    mapping(string => uint256) internal changeTimelocks;
+
+    /// @notice User submission nonces (for payload nonce sequencing).
+    mapping(address => uint256) public nonces;
+
+    /// @dev Total steps recorded per user.
+    mapping(address => uint256) internal totalSteps;
+
+    /// @dev Last source used per user.
+    mapping(address => string) internal lastSource;
+
+    /// @notice Trusted ERC-1271 contract wallets.
+    mapping(address => bool) public trustedERC1271Contracts;
+
+    /// @notice Approved recipients for emergency withdrawals.
+    mapping(address => bool) public approvedRecipients;
+
+    /// @dev Used merkle leaves (leaf => used).
+    mapping(bytes32 => bool) internal usedLeaves;
+
+    /// @notice Source configuration struct (contains a per-user nonce mapping).
     struct SourceConfig {
         bool requiresProof;
         bool requiresAttestation;
@@ -212,39 +288,72 @@ abstract contract GemStepStorage {
         uint256 minInterval;
         mapping(address => uint256) userNonce;
     }
+
+    /// @dev Source key => SourceConfig
     mapping(string => SourceConfig) internal sourceConfigs;
 
+    /// @dev Trusted attestation device registry.
     mapping(address => bool) internal trustedDevices;
 
-    // per-(user,source) timing & daily caps
+    /// @dev Per-(user,source) submission timestamp (min-interval enforcement).
     mapping(address => mapping(string => uint256)) internal lastSubmission;
+
+    /// @dev Per-(user,source) daily step totals (daily cap enforcement).
     mapping(address => mapping(string => uint256)) internal dailyStepTotal;
-    // (C) NEW: track day index to reset dailyStepTotal at UTC day rollover
+
+    /// @dev Per-(user,source) stored day index to detect UTC rollover.
     mapping(address => mapping(string => uint256)) internal dailyIndex;
 
-    // anomaly tracking (EMA scaled ×100)
+    /// @dev User EMA average (scaled ×100).
     mapping(address => uint256) internal userStepAverage;
+
+    /// @dev Number of anomaly flags per user.
     mapping(address => uint256) internal flaggedSubmissions;
+
+    /// @dev Suspension timestamp per user.
     mapping(address => uint256) internal suspendedUntil;
+
+    /// @dev Staked ETH per user (wei).
     mapping(address => uint256) internal stakeBalance;
-    mapping(address => bool)    internal isTrustedAPI;
-    mapping(address => uint256) internal userFirstSubmission; // track first submission
 
-    /// @notice Pure storage + constants + events + structs for GemStep.
-    uint256 internal anomalyThreshold;
+    /// @dev Trusted API caller registry.
+    mapping(address => bool) internal isTrustedAPI;
 
-    // Version controls
-    mapping(bytes32 => bool) internal supportedAttestationVersions;        // normalized hash -> allowed
-    mapping(bytes32 => uint256) internal attestationVersionDeprecatesAt;   // hash -> unix time (0 = not scheduled)
-    mapping(bytes32 => bool) internal supportedPayloadVersions;            // normalized hash -> allowed
-    mapping(bytes32 => uint256) internal payloadVersionDeprecatesAt;       // hash -> unix time (0 = not scheduled)
+    /// @dev Timestamp of first submission per user (grace-period anchor).
+    mapping(address => uint256) internal userFirstSubmission;
 
-    // NEW: Attestation/1271 replay guards + per-version nonce requirement
-    mapping(bytes32 => bool) public usedAttestations;                    // device+attestHash (legacy)
-    mapping(address => mapping(bytes32 => bool)) public used1271Digests; // ERC1271 wallet -> digest used
-    mapping(bytes32 => bool) internal attestationRequiresNonce;          // attestation version hash -> nonce required
+    /// @notice Tunable anomaly threshold (kept in-place for layout compatibility).
+    uint256 public anomalyThreshold;
 
-    // ====================== Events ====================== //
+    /* =============================================================
+                              VERSION CONTROLS
+       ============================================================= */
+
+    /// @dev Supported attestation versions (hash of normalized string => allowed).
+    mapping(bytes32 => bool) internal supportedAttestationVersions;
+
+    /// @dev Attestation version deprecation time (hash => unix time; 0 = not scheduled).
+    mapping(bytes32 => uint256) internal attestationVersionDeprecatesAt;
+
+    /// @dev Supported payload versions (hash of normalized string => allowed).
+    mapping(bytes32 => bool) internal supportedPayloadVersions;
+
+    /// @dev Payload version deprecation time (hash => unix time; 0 = not scheduled).
+    mapping(bytes32 => uint256) internal payloadVersionDeprecatesAt;
+
+    /// @notice Legacy attestation replay guard (device + typedHash => used).
+    mapping(bytes32 => bool) public usedAttestations;
+
+    /// @notice ERC-1271 digest replay guard: wallet => digest => used.
+    mapping(address => mapping(bytes32 => bool)) public used1271Digests;
+
+    /// @dev Attestation version hash => whether nonce-binding is required.
+    mapping(bytes32 => bool) internal attestationRequiresNonce;
+
+    /* =============================================================
+                                   EVENTS
+       ============================================================= */
+
     event TokensMinted(address indexed to, uint256 amount, uint256 newTotalSupply);
     event TokensBurned(address indexed from, uint256 amount, uint256 newTotalSupply);
 
@@ -254,8 +363,8 @@ abstract contract GemStepStorage {
         uint256 steps,
         uint256 rewardAmount,
         uint256 timestamp,
-        string  source,
-        string  version
+        string source,
+        string version
     );
 
     event EmergencyWithdraw(address indexed admin, uint256 amount, uint256 newTotalSupply);
@@ -290,7 +399,7 @@ abstract contract GemStepStorage {
     event SourceConfigured(string source, bool requiresProof, bool requiresAttestation);
     event TrustedDeviceAdded(address indexed device);
     event TrustedAPISet(address indexed api, bool trusted);
-    event VersionAdded(string version); // kept for backward compatibility (attestation)
+    event VersionAdded(string version); // backward compatibility (attestation)
     event StakeParametersUpdated(uint256 newStakePerStep, uint256 timestamp);
     event StakeEmergencyLocked(bool locked);
     event OracleUpdated(address indexed newOracle);
@@ -298,42 +407,63 @@ abstract contract GemStepStorage {
     event Trusted1271Set(address indexed contractAddr, bool trusted);
     event AttestationNonceRequirementSet(string normVersion, bool required);
 
-    // New explicit version events
+    event TreasurySet(address indexed treasury);
+
     event PayloadVersionAdded(string version);
     event PayloadVersionDeprecated(string version, uint256 deprecatesAt);
     event AttestationVersionAdded(string version);
     event AttestationVersionDeprecated(string version, uint256 deprecatesAt);
 
-    // ====================== CROSS-CHAIN GOVERNANCE EVENTS ======================
+    event SourceMerkleRootSet(string source, bytes32 root);
+
+    /* ====================== CROSS-CHAIN GOVERNANCE EVENTS ====================== */
     event L1GovernanceSet(address indexed l1);
     event L2PausedByL1(bool paused);
     event L2ParamsUpdatedByL1(uint256 stepLimit, uint256 rewardRate);
     event L2ToL1Tx(uint256 indexed id, address to, bytes data);
 
-    // ====================== Data Structures ====================== //
+    /* =============================================================
+                               DATA STRUCTURES
+       ============================================================= */
+
+    /// @notice Step submission payload used by {GS_StepsAndVerification.logSteps}.
     struct StepSubmission {
         address user;
         address beneficiary;
         uint256 steps;
         uint256 nonce;
         uint256 deadline;
-        string  source;
-        string  version; // client/schema tag (normalized & allowlisted)
+        string source;
+        string version; // client/schema tag (normalized & allowlisted)
     }
 
+    /// @notice Verification bundle used by {GS_StepsAndVerification.logSteps}.
     struct VerificationData {
+        /// @notice EIP-712 signature for the step digest.
         bytes signature;
+
+        /// @notice Optional merkle proof (source-dependent).
         bytes32[] proof;
-        // For attestation v2 (nonce-bound): abi.encode(address device, uint256 timestamp, string attestationVersion, bytes sig)
-        // (Legacy v1 also uses the same tuple but signs the legacy typehash without userNonce)
+
+        /// @notice Optional device attestation blob:
+        /// @dev abi.encode(address device, uint256 timestamp, string attestationVersion, bytes sig)
+        ///      - v2 binds nonce (signed with ATTESTATION_V2_TYPEHASH)
+        ///      - legacy v1 uses ATTESTATION_TYPEHASH (no nonce-binding)
         bytes attestation;
     }
 
-    // ====================== CROSS-CHAIN GOVERNANCE STATE ======================
-    // NEW: L1 governance controller for cross-chain control
-    // Placed here for maximum storage layout stability
+    /* =============================================================
+                     CROSS-CHAIN GOVERNANCE (STATE)
+       ============================================================= */
+
+    /// @dev L1 governance controller address (unaliased; aliasing applied on L2).
+    /// Placed here for maximum storage layout stability.
     address internal l1Governance;
 
-    // Storage gap for future upgrades
+    /* =============================================================
+                                 STORAGE GAP
+       ============================================================= */
+
+    /// @dev Reserved storage slots for future upgrades.
     uint256[40] private __gap;
 }

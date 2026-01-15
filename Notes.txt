@@ -7,6 +7,32 @@ npx hardhat test          # quick sanity
 npx hardhat coverage      # full suite
 
 # Testing  - hardhat
+
+
+
+npx hardhat coverage --testfiles "test/Coverage.boost.test.js"
+npx hardhat coverage --testfiles "test/cross_chain_governance_l1.more.test.js"
+npx hardhat coverage --testfiles "test/cross_chain_governance_l1.test.js"
+npx hardhat coverage --testfiles "test/CrossChainGovernanceL1.extra.spec.js"
+npx hardhat coverage --testfiles "test/CrossChainGovernanceL1.spec.js"
+npx hardhat coverage --testfiles "test/Deployment.test.js"
+npx hardhat coverage --testfiles "test/GemStepToken.Extendedtest.js"
+npx hardhat coverage --testfiles "test/GemStepToken.recommended.spec.js"
+npx hardhat coverage --testfiles "test/GemStepToken.test.js"
+npx hardhat coverage --testfiles "test/GemStepToken.upgrade.staking.test.js"
+npx hardhat coverage --testfiles "test/gs_emergency_and_l2.extra.test.js"
+npx hardhat coverage --testfiles "test/gs_emergency_and_l2.module.test.js"
+npx hardhat coverage --testfiles "test/GST.anomaly.spec.js"
+npx hardhat coverage --testfiles "test/hardening.test.js"
+npx hardhat coverage --testfiles "test/oracleIntegration.spec.js"
+npx hardhat coverage --testfiles "test/PostDeployment.test.js"
+npx hardhat coverage --testfiles "test/Upgrade.flow.optionA.test.js"
+npx hardhat coverage --testfiles "test/Upgrade.flow.test.js"
+npx hardhat coverage --testfiles "test/Upgrades.extra.spec.js"
+npx hardhat coverage --testfiles "test/withdrawStake.spec.js"
+
+
+npx hardhat test test/Coverage.boost.test.js
 npx hardhat test test/Deployment.test.js
 npx hardhat test test/GemStepToken.test.js
 npx hardhat test test/PostDeployment.test.js
@@ -16,7 +42,7 @@ npx hardhat test test/Upgrade.flow.test.js
 npx hardhat test test/Upgrade.flow.optionA.test.js
 npx hardhat test test/GSTEP.anomaly.spec.js
 npx hardhat test test/GemStepToken.recommended.spec.js
-
+npx hardhat test test/GemStepToken.Extendedtest.js
 -------------------------------------------------------------------
 #Localhost - iniial Run
 --------------------------------------------------------------------

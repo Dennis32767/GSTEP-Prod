@@ -37,5 +37,5 @@ contract GemStepToken is
     GS_EmergencyAndL2,
     GS_Views
 {
-    // Intentionally empty: all logic inherited. Storage & selectors preserved.
+    /// @dev Intentionally empty: all logic is inherited. Storage & selectors preserved.
 }

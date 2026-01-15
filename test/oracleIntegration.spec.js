@@ -1,366 +1,380 @@
+/* eslint-disable no-unused-expressions */
 // @ts-nocheck
+// SPDX-License-Identifier: MIT
 const { expect } = require("chai");
-const { ethers } = require("hardhat");
+const { ethers, upgrades } = require("hardhat");
+const { loadFixture, time } = require("@nomicfoundation/hardhat-network-helpers");
 
-// Oracle-specific fixture with proper role setup
+/**
+ * DROP-IN replacement that fixes StalePrice failures:
+ * - maxStaleness=300s, so ANY long warp (cooldown) makes oracle stale
+ * - therefore: WARP first, then set oracle updatedAt to current chain timestamp, then call adjust
+ */
+
+async function nowTs() {
+  const b = await ethers.provider.getBlock("latest");
+  return BigInt(b.timestamp);
+}
+
+async function warp(seconds) {
+  await time.increase(Number(seconds));
+}
+
+async function setOracleAtChainNow(oracle, priceWei, confBps = 0) {
+  const t = await nowTs();
+  await oracle.set(priceWei, t, confBps);
+}
+
+async function warpPastCooldown(token) {
+  const cd = BigInt((await token.STAKE_ADJUST_COOLDOWN()).toString());
+  await warp(cd + 1n);
+}
+
+/**
+ * ✅ Core helper:
+ * Always ensures BOTH:
+ *  - cooldown satisfied
+ *  - oracle updatedAt is fresh (<= maxStaleness)
+ * before calling adjustStakeRequirements()
+ */
+async function adjustWithFreshOracle({ token, oracle, caller, priceWei, confBps = 0 }) {
+  await warpPastCooldown(token);                // cooldown first (can be large)
+  await setOracleAtChainNow(oracle, priceWei, confBps); // refresh updatedAt AFTER warp
+  return token.connect(caller).adjustStakeRequirements();
+}
+
+async function makeOracleStale(oracle) {
+  const stale = BigInt((await oracle.maxStaleness()).toString());
+  const t = await nowTs();
+  const tooOld = t - stale - 1n;
+  await oracle.set(await oracle.priceWei(), tooOld, await oracle.confidenceBps());
+}
+async function setOracleNow(oracle, priceWei, confBps = 0) {
+  const { timestamp } = await ethers.provider.getBlock("latest");
+  await oracle.set(priceWei, timestamp, confBps);
+}
+
+async function warpPastCooldown(token) {
+  const cd = await token.STAKE_ADJUST_COOLDOWN();
+  const now = await ethers.provider.getBlock("latest").then((b) => b.timestamp);
+  await ethers.provider.send("evm_setNextBlockTimestamp", [Number(now) + Number(cd) + 1]);
+  await ethers.provider.send("evm_mine", []);
+}
+
+
+/* ----------------------------- Fixture ----------------------------- */
+
 async function deployFixtureWithOracle() {
-  const [deployer, user, other, parameterAdmin, emergencyAdmin] = await ethers.getSigners();
+  const [deployer, admin, treasury, user, other, parameterAdmin, emergencyAdmin] =
+    await ethers.getSigners();
 
-  // Deploy your existing mock oracle
   const MockOracle = await ethers.getContractFactory("MockOracleV2");
   const oracle = await MockOracle.deploy();
   await oracle.waitForDeployment();
 
-  // Deploy GemStep token
-  const GemStepToken = await ethers.getContractFactory("GemStepToken");
-  const token = await GemStepToken.deploy();
+  // Policy: stale=300s, minConf=100
+  await oracle.setPolicy(300, 100);
+
+  // Initial oracle set at chain timestamp (fresh)
+  await setOracleAtChainNow(oracle, ethers.parseEther("0.005"), 0);
+
+  const Token = await ethers.getContractFactory(
+    "contracts/GemStepToken.sol:GemStepToken"
+  );
+
+  const initialSupply = ethers.parseUnits("400000000", 18);
+
+  const token = await upgrades.deployProxy(
+    Token,
+    [initialSupply, admin.address, await oracle.getAddress(), treasury.address],
+    { initializer: "initialize" }
+  );
   await token.waitForDeployment();
 
-  // Grant necessary roles - try to get role constants
-  let PARAMETER_ADMIN_ROLE, EMERGENCY_ADMIN_ROLE;
-  
-  try {
-    PARAMETER_ADMIN_ROLE = await token.PARAMETER_ADMIN_ROLE();
-    EMERGENCY_ADMIN_ROLE = await token.EMERGENCY_ADMIN_ROLE();
-    
-    // Grant roles using deployer (who should have DEFAULT_ADMIN_ROLE)
-    await token.grantRole(PARAMETER_ADMIN_ROLE, parameterAdmin.address);
-    await token.grantRole(EMERGENCY_ADMIN_ROLE, emergencyAdmin.address);
-  } catch (e) {
-    // If we can't get roles, use fallback approach
-    console.log("Using fallback role approach");
-  }
+  // Grant roles using admin
+  const PARAM = await token.PARAMETER_ADMIN_ROLE();
+  await token.connect(admin).grantRole(PARAM, parameterAdmin.address);
 
-  // Try to set the oracle address if there's a setter function
-  let oracleUpdated = false;
-  try {
-    if (typeof token.setPriceOracle === 'function') {
-      await token.setPriceOracle(await oracle.getAddress());
-      oracleUpdated = true;
-    } else if (typeof token.updateOracle === 'function') {
-      await token.updateOracle(await oracle.getAddress());
-      oracleUpdated = true;
-    }
-  } catch (e) {
-    // Oracle setter might not be available or need different role
-  }
+  const EMER = await token.EMERGENCY_ADMIN_ROLE();
+  await token.connect(admin).grantRole(EMER, emergencyAdmin.address);
 
-  return { 
-    deployer, 
-    user, 
-    other, 
-    parameterAdmin, 
-    emergencyAdmin, 
-    token, 
+  return {
+    deployer,
+    admin,
+    treasury,
+    user,
+    other,
+    parameterAdmin,
+    emergencyAdmin,
+    token,
     oracle,
-    oracleUpdated 
   };
 }
 
-async function warp(seconds) {
-  const now = await ethers.provider.getBlock('latest').then(b => b.timestamp);
-  await ethers.provider.send("evm_setNextBlockTimestamp", [Number(now) + seconds]);
-  await ethers.provider.send("evm_mine", []);
-}
+/* ====================================================================
+ *                             TESTS
+ * ==================================================================== */
 
-// Helper to handle role-based function calls gracefully
-async function callWithRoleFallback(contract, signer, functionName, ...args) {
-  try {
-    return await contract.connect(signer)[functionName](...args);
-  } catch (e) {
-    if (e.message.includes('AccessControlUnauthorizedAccount')) {
-      // Try with deployer as fallback
-      const [deployer] = await ethers.getSigners();
-      return await contract.connect(deployer)[functionName](...args);
-    }
-    throw e;
-  }
-}
-
-// ====================================================================
-//                         ORACLE INTEGRATION TESTS
-// ====================================================================
-describe("GemStepToken â€” Oracle Integration", function () {
+describe("GemStepToken — Oracle Integration (staleness-safe)", function () {
   describe("Stake Adjustment with Oracle", function () {
-    it("should adjust stake requirements using oracle price", async function () {
-      const { token, oracle, parameterAdmin, deployer } = await deployFixtureWithOracle();
-      
-      // Set a realistic price in oracle
-      const currentPrice = await oracle.priceWei();
-      const expectedStake = (currentPrice * 10n) / 100n;
-      
-      try {
-        // Try with parameterAdmin, fallback to deployer if no role
-        const tx = await callWithRoleFallback(
-          token, parameterAdmin, 'adjustStakeRequirements'
-        );
-        await expect(tx)
-          .to.emit(token, "StakeParametersUpdated");
-      } catch (e) {
-        // Skip if function not available or other issues
-        console.log("adjustStakeRequirements:", e.message);
+    it("adjustStakeRequirements succeeds with fresh oracle data after cooldown", async function () {
+      const { token, oracle, parameterAdmin } = await loadFixture(deployFixtureWithOracle);
+
+      const tx = await adjustWithFreshOracle({
+        token,
+        oracle,
+        caller: parameterAdmin,
+        priceWei: ethers.parseEther("0.005"),
+        confBps: 0,
+      });
+
+      await expect(tx).to.emit(token, "StakeParametersUpdated");
+    });
+
+    it("handles oracle price updates correctly (multiple updates across cooldown)", async function () {
+      const { token, oracle, parameterAdmin } = await loadFixture(deployFixtureWithOracle);
+
+      const prices = [
+        ethers.parseEther("0.005"),
+        ethers.parseEther("0.01"),
+        ethers.parseEther("0.02"),
+      ];
+
+      for (const p of prices) {
+        const tx = await adjustWithFreshOracle({
+          token,
+          oracle,
+          caller: parameterAdmin,
+          priceWei: p,
+          confBps: 0,
+        });
+        await expect(tx).to.emit(token, "StakeParametersUpdated");
       }
     });
 
-    it("should handle oracle price updates correctly", async function () {
-      const { token, oracle, parameterAdmin } = await deployFixtureWithOracle();
-      
-      try {
-        // Test different price scenarios
-        const testPrices = [
-          ethers.parseEther("0.005"),
-          ethers.parseEther("0.01"), 
-          ethers.parseEther("0.02")
-        ];
+    it("respects stake parameter bounds (does not revert on extreme prices if contract clamps)", async function () {
+      const { token, oracle, parameterAdmin } = await loadFixture(deployFixtureWithOracle);
 
-        for (const price of testPrices) {
-          await oracle.set(price, Math.floor(Date.now() / 1000), 0);
-          await warp(86400 + 1);
-          
-          await callWithRoleFallback(
-            token, parameterAdmin, 'adjustStakeRequirements'
-          );
-        }
-      } catch (e) {
-        console.log("Price update test:", e.message);
+      // low
+      {
+        const tx = await adjustWithFreshOracle({
+          token,
+          oracle,
+          caller: parameterAdmin,
+          priceWei: ethers.parseEther("0.0000005"),
+          confBps: 0,
+        });
+        await expect(tx).to.emit(token, "StakeParametersUpdated");
       }
-    });
 
-    it("should respect stake parameter bounds", async function () {
-      const { token, oracle, parameterAdmin } = await deployFixtureWithOracle();
-      
-      try {
-        // Test minimum bound
-        await oracle.set(ethers.parseEther("0.0000005"), Math.floor(Date.now() / 1000), 0);
-        await warp(86400 + 1);
-        await callWithRoleFallback(token, parameterAdmin, 'adjustStakeRequirements');
-        
-        // Test maximum bound  
-        await oracle.set(ethers.parseEther("0.02"), Math.floor(Date.now() / 1000), 0);
-        await warp(86400 + 1);
-        await callWithRoleFallback(token, parameterAdmin, 'adjustStakeRequirements');
-        
-      } catch (e) {
-        console.log("Parameter bounds test:", e.message);
+      // high
+      {
+        const tx = await adjustWithFreshOracle({
+          token,
+          oracle,
+          caller: parameterAdmin,
+          priceWei: ethers.parseEther("0.02"),
+          confBps: 0,
+        });
+        await expect(tx).to.emit(token, "StakeParametersUpdated");
       }
     });
   });
 
   describe("Oracle Error Conditions", function () {
-    it("should handle stale price data", async function () {
-      const { token, oracle, parameterAdmin } = await deployFixtureWithOracle();
-      
-      // Set stale timestamp
-      const staleTime = Math.floor(Date.now() / 1000) - 7200;
-      await oracle.set(ethers.parseEther("0.01"), staleTime, 0);
-      
-      try {
-        await callWithRoleFallback(token, parameterAdmin, 'adjustStakeRequirements');
-        // If we get here, it didn't revert as expected - that's OK for this test
-      } catch (e) {
-        // Expected to potentially fail
-      }
+    it("reverts on stale price data (MockOracleV2 StalePrice)", async function () {
+      const { token, oracle, parameterAdmin } = await loadFixture(deployFixtureWithOracle);
+
+      // satisfy cooldown first, THEN make oracle stale and call adjust
+      await warpPastCooldown(token);
+      await makeOracleStale(oracle);
+
+      await expect(token.connect(parameterAdmin).adjustStakeRequirements())
+        .to.be.revertedWithCustomError(oracle, "StalePrice");
     });
 
-    it("should handle low confidence data", async function () {
-      const { token, oracle, parameterAdmin } = await deployFixtureWithOracle();
-      
-      // Set low confidence
-      await oracle.set(ethers.parseEther("0.01"), Math.floor(Date.now() / 1000), 150);
-      
-      try {
-        await callWithRoleFallback(token, parameterAdmin, 'adjustStakeRequirements');
-        // If we get here, it didn't revert as expected - that's OK
-      } catch (e) {
-        // Expected to potentially fail
-      }
+    it("reverts on low confidence data (MockOracleV2 ConfidenceTooLow)", async function () {
+      const { token, oracle, parameterAdmin } = await loadFixture(deployFixtureWithOracle);
+
+      // cooldown then fresh oracle with high confidenceBps (> minConf=100)
+      await expect(
+        adjustWithFreshOracle({
+          token,
+          oracle,
+          caller: parameterAdmin,
+          priceWei: ethers.parseEther("0.01"),
+          confBps: 150,
+        })
+      ).to.be.revertedWithCustomError(oracle, "ConfidenceTooLow");
     });
 
-    it("should handle zero price", async function () {
-      const { token, oracle, parameterAdmin } = await deployFixtureWithOracle();
-      
-      // Set zero price
-      await oracle.set(0, Math.floor(Date.now() / 1000), 0);
-      
-      try {
-        await callWithRoleFallback(token, parameterAdmin, 'adjustStakeRequirements');
-        // If we get here, it didn't revert as expected - that's OK
-      } catch (e) {
-        // Expected to potentially fail
-      }
-    });
+      it("zero price: either reverts InvalidPrice OR leaves stake unchanged (implementation-dependent)", async function () {
+        const { token, oracle, parameterAdmin } = await deployFixtureWithOracle();
+
+        // ensure cooldown is not the reason for failure
+        await warpPastCooldown(token);
+
+        // capture current stake params before attempting adjustment
+        const before = BigInt((await token.currentStakePerStep()).toString());
+
+        // set oracle to zero price with a FRESH timestamp
+        await setOracleNow(oracle, 0n, 0);
+
+        try {
+          const tx = await token.connect(parameterAdmin).adjustStakeRequirements();
+          await tx.wait();
+
+          // If your implementation chooses NOT to revert on zero price,
+          // it should NOT blow up stake requirements.
+          const after = BigInt((await token.currentStakePerStep()).toString());
+
+          // Most conservative invariant: unchanged
+          expect(after).to.equal(before);
+        } catch (e) {
+          // If your implementation *does* call quoteTokenInWei and bubbles errors:
+          await expect(
+            token.connect(parameterAdmin).adjustStakeRequirements()
+          ).to.be.revertedWithCustomError(oracle, "InvalidPrice");
+        }
+      });
   });
 
   describe("Stake Adjustment Cooldown", function () {
-    it("should enforce cooldown period between adjustments", async function () {
-      const { token, parameterAdmin } = await deployFixtureWithOracle();
-      
-      try {
-        // First adjustment
-        await callWithRoleFallback(token, parameterAdmin, 'adjustStakeRequirements');
-        
-        // Immediate second adjustment
-        try {
-          await callWithRoleFallback(token, parameterAdmin, 'adjustStakeRequirements');
-          // If we get here, cooldown might not be enforced - that's OK for test
-        } catch (e) {
-          // Expected to fail due to cooldown
-        }
-        
-        // After cooldown
-        await warp(86400 + 1);
-        await callWithRoleFallback(token, parameterAdmin, 'adjustStakeRequirements');
-          
-      } catch (e) {
-        console.log("Cooldown test:", e.message);
-      }
+    it("enforces cooldown between adjustments", async function () {
+      const { token, oracle, parameterAdmin } = await loadFixture(deployFixtureWithOracle);
+
+      // first success
+      const tx1 = await adjustWithFreshOracle({
+        token,
+        oracle,
+        caller: parameterAdmin,
+        priceWei: ethers.parseEther("0.01"),
+        confBps: 0,
+      });
+      await expect(tx1).to.emit(token, "StakeParametersUpdated");
+
+      // immediate second should revert cooldown (oracle freshness irrelevant here)
+      await expect(token.connect(parameterAdmin).adjustStakeRequirements())
+        .to.be.revertedWith("Cooldown active");
+
+      // after cooldown, succeed again (must refresh oracle AFTER warp)
+      const tx2 = await adjustWithFreshOracle({
+        token,
+        oracle,
+        caller: parameterAdmin,
+        priceWei: ethers.parseEther("0.01"),
+        confBps: 0,
+      });
+      await expect(tx2).to.emit(token, "StakeParametersUpdated");
     });
   });
 
   describe("Emergency Admin Functions", function () {
-    it("should allow emergency override of stake parameters", async function () {
-      const { token, emergencyAdmin, deployer } = await deployFixtureWithOracle();
-      
-      const manualStake = ethers.parseEther("0.0005");
-      
-      try {
-        const tx = await callWithRoleFallback(
-          token, emergencyAdmin, 'manualOverrideStake', manualStake
-        );
-        await expect(tx).to.emit(token, "StakeParametersUpdated");
-      } catch (e) {
-        console.log("Emergency override test:", e.message);
-      }
+    it("allows emergency override of stake parameters", async function () {
+      const { token, emergencyAdmin } = await loadFixture(deployFixtureWithOracle);
+
+      await expect(
+        token.connect(emergencyAdmin).manualOverrideStake(ethers.parseEther("0.0005"))
+      ).to.emit(token, "StakeParametersUpdated");
     });
 
-    it("should enforce parameter bounds in manual override", async function () {
-      const { token, emergencyAdmin } = await deployFixtureWithOracle();
-      
-      try {
-        // Try to set below minimum
-        await callWithRoleFallback(
-          token, emergencyAdmin, 'manualOverrideStake', ethers.parseEther("0.00000005")
-        );
-      } catch (e) {
-        // Expected to fail
-      }
+    it("stake parameter lock blocks automatic + manual changes; unlock restores", async function () {
+      const { token, oracle, emergencyAdmin, parameterAdmin } = await loadFixture(deployFixtureWithOracle);
 
-      try {
-        // Try to set above maximum  
-        await callWithRoleFallback(
-          token, emergencyAdmin, 'manualOverrideStake', ethers.parseEther("0.002")
-        );
-      } catch (e) {
-        // Expected to fail
-      }
-    });
+      // Lock
+      await token.connect(emergencyAdmin).toggleStakeParamLock();
 
-    it("should respect stake parameter lock", async function () {
-      const { token, emergencyAdmin, parameterAdmin } = await deployFixtureWithOracle();
-      
-      try {
-        // Lock parameters
-        await callWithRoleFallback(token, emergencyAdmin, 'toggleStakeParamLock');
-        
-        // Try adjustments - should fail
-        try {
-          await callWithRoleFallback(token, parameterAdmin, 'adjustStakeRequirements');
-        } catch (e) {
-          // Expected
-        }
+      // Automatic should revert (lock)
+      await warpPastCooldown(token);
+      await setOracleAtChainNow(oracle, ethers.parseEther("0.01"), 0);
+      await expect(token.connect(parameterAdmin).adjustStakeRequirements()).to.be.reverted;
 
-        try {
-          await callWithRoleFallback(
-            token, emergencyAdmin, 'manualOverrideStake', ethers.parseEther("0.0005")
-          );
-        } catch (e) {
-          // Expected
-        }
-        
-        // Unlock and verify it works again
-        await callWithRoleFallback(token, emergencyAdmin, 'toggleStakeParamLock');
-        await warp(86400 + 1);
-        await callWithRoleFallback(token, parameterAdmin, 'adjustStakeRequirements');
-          
-      } catch (e) {
-        console.log("Parameter lock test:", e.message);
-      }
+      // Manual should revert (lock)
+      await expect(
+        token.connect(emergencyAdmin).manualOverrideStake(ethers.parseEther("0.0005"))
+      ).to.be.reverted;
+
+      // Unlock
+      await token.connect(emergencyAdmin).toggleStakeParamLock();
+
+      // Automatic works again (fresh oracle after cooldown)
+      const tx = await adjustWithFreshOracle({
+        token,
+        oracle,
+        caller: parameterAdmin,
+        priceWei: ethers.parseEther("0.01"),
+        confBps: 0,
+      });
+      await expect(tx).to.emit(token, "StakeParametersUpdated");
     });
   });
 
   describe("Integration Scenarios", function () {
-    it("should handle normal operation with valid oracle data", async function () {
-      const { token, oracle, parameterAdmin, user } = await deployFixtureWithOracle();
-      
-      try {
-        // Set valid oracle data
-        await oracle.set(ethers.parseEther("0.01"), Math.floor(Date.now() / 1000), 0);
-        await warp(86400 + 1);
-        
-        // Adjust stake requirements
-        await callWithRoleFallback(token, parameterAdmin, 'adjustStakeRequirements');
-        
-        // Users should still be able to stake and withdraw
-        await token.connect(user).stake({ value: ethers.parseEther("0.1") });
-        await token.connect(user).withdrawStake(ethers.parseEther("0.05"));
-        
-      } catch (e) {
-        console.log("Normal operation test:", e.message);
-      }
+    it("normal operation: adjust works and users can stake/withdraw", async function () {
+      const { token, oracle, parameterAdmin, user } = await loadFixture(deployFixtureWithOracle);
+
+      const tx = await adjustWithFreshOracle({
+        token,
+        oracle,
+        caller: parameterAdmin,
+        priceWei: ethers.parseEther("0.01"),
+        confBps: 0,
+      });
+      await expect(tx).to.emit(token, "StakeParametersUpdated");
+
+      await token.connect(user).stake({ value: ethers.parseEther("0.1") });
+      await token.connect(user).withdrawStake(ethers.parseEther("0.05"));
     });
 
-    it("should maintain operation during oracle issues", async function () {
-      const { token, oracle, parameterAdmin, emergencyAdmin, user } = await deployFixtureWithOracle();
-      
-      try {
-        // Start with good oracle state
-        await oracle.set(ethers.parseEther("0.01"), Math.floor(Date.now() / 1000), 0);
-        await callWithRoleFallback(token, parameterAdmin, 'adjustStakeRequirements');
-        
-        // Oracle develops issues (stale data)
-        const staleTime = Math.floor(Date.now() / 1000) - 7200;
-        await oracle.set(ethers.parseEther("0.01"), staleTime, 0);
-        
-        // Automatic adjustments might fail
-        try {
-          await callWithRoleFallback(token, parameterAdmin, 'adjustStakeRequirements');
-        } catch (e) {
-          // Expected
-        }
-        
-        // But users can still operate
-        await token.connect(user).stake({ value: ethers.parseEther("0.1") });
-        await token.connect(user).withdrawStake(ethers.parseEther("0.05"));
-        
-        // Emergency admin can manually override if needed
-        await callWithRoleFallback(
-          token, emergencyAdmin, 'manualOverrideStake', ethers.parseEther("0.0008")
-        );
-        
-      } catch (e) {
-        console.log("Oracle issues scenario:", e.message);
-      }
+    it("oracle issues: automatic adjust reverts, but staking/withdrawal still works; emergency override works", async function () {
+      const { token, oracle, parameterAdmin, emergencyAdmin, user } = await loadFixture(deployFixtureWithOracle);
+
+      // Start good
+      const tx1 = await adjustWithFreshOracle({
+        token,
+        oracle,
+        caller: parameterAdmin,
+        priceWei: ethers.parseEther("0.01"),
+        confBps: 0,
+      });
+      await expect(tx1).to.emit(token, "StakeParametersUpdated");
+
+      // Make stale and ensure cooldown satisfied
+      await warpPastCooldown(token);
+      await makeOracleStale(oracle);
+
+      await expect(token.connect(parameterAdmin).adjustStakeRequirements())
+        .to.be.revertedWithCustomError(oracle, "StalePrice");
+
+      // user ops still ok
+      await token.connect(user).stake({ value: ethers.parseEther("0.1") });
+      await token.connect(user).withdrawStake(ethers.parseEther("0.05"));
+
+      // emergency override ok
+      await expect(
+        token.connect(emergencyAdmin).manualOverrideStake(ethers.parseEther("0.0008"))
+      ).to.emit(token, "StakeParametersUpdated");
     });
 
-    it("should handle price volatility scenarios", async function () {
-      const { token, oracle, parameterAdmin } = await deployFixtureWithOracle();
-      
-      try {
-        // Simulate price changes over time
-        const priceChanges = [
-          ethers.parseEther("0.008"),
-          ethers.parseEther("0.012"),
-          ethers.parseEther("0.007"),
-          ethers.parseEther("0.015"),
-        ];
-        
-        for (let i = 0; i < priceChanges.length; i++) {
-          await oracle.set(priceChanges[i], Math.floor(Date.now() / 1000), 0);
-          await warp(86400 + 1);
-          await callWithRoleFallback(token, parameterAdmin, 'adjustStakeRequirements');
-        }
-      } catch (e) {
-        console.log("Price volatility test:", e.message);
+    it("price volatility: repeated price updates + adjust across cooldown", async function () {
+      const { token, oracle, parameterAdmin } = await loadFixture(deployFixtureWithOracle);
+
+      const priceChanges = [
+        ethers.parseEther("0.008"),
+        ethers.parseEther("0.012"),
+        ethers.parseEther("0.007"),
+        ethers.parseEther("0.015"),
+      ];
+
+      for (const p of priceChanges) {
+        const tx = await adjustWithFreshOracle({
+          token,
+          oracle,
+          caller: parameterAdmin,
+          priceWei: p,
+          confBps: 0,
+        });
+        await expect(tx).to.emit(token, "StakeParametersUpdated");
       }
     });
   });
