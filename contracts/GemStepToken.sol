@@ -8,7 +8,7 @@ import "./token/modules/GS_AnomalyAndFraud.sol";
 import "./token/modules/GS_MintingAndSupply.sol";
 import "./token/modules/GS_EmergencyAndL2.sol";
 import "./token/modules/GS_Admin.sol";
-import "./token/modules/GS_Views.sol";
+import "./token/modules/GS_ReadersMinimal.sol";
 
 /// @title GemStepToken
 /// @notice Concrete GemStep token implementation composed from modular mixins.
@@ -35,7 +35,7 @@ contract GemStepToken is
     GS_AnomalyAndFraud,
     GS_MintingAndSupply,
     GS_EmergencyAndL2,
-    GS_Views
+    GS_ReadersMinimal
 {
     /// @dev Intentionally empty: all logic is inherited. Storage & selectors preserved.
 }
