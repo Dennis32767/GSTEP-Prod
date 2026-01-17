@@ -62,7 +62,7 @@ describe("GemStepToken", function () {
       await token.connect(admin).setTrustedAPI(apiSigner.address, true);
     }
 
-    // Ensure payload version supported (DO NOT place this in a describe())
+    // Ensure payload version supported
     if (typeof token.addSupportedPayloadVersion === "function") {
       await token.connect(admin).addSupportedPayloadVersion("1.0.0");
     } else if (typeof token.addSupportedVersion === "function") {
@@ -77,11 +77,15 @@ describe("GemStepToken", function () {
       await token.connect(admin).forceMonthUpdate();
     }
 
+    // ✅ funder = treasury (holds initial supply in your design)
+    const funder = treasury;
+
     return {
       token,
       deployer,
       admin,
       treasury,
+      funder,
       user1,
       user2,
       apiSigner,
@@ -107,53 +111,78 @@ describe("GemStepToken", function () {
     if (minReward === 0n) return 1n;
     return (minReward + rr - 1n) / rr; // ceil
   }
-/* ------------------- Reward-too-small auto-bump (DROP-IN) ------------------- */
-function _errMsg(e) {
-  return `${e?.reason || ""} ${e?.shortMessage || ""} ${e?.message || ""}`.toLowerCase();
-}
-function isRewardTooSmallError(e) {
-  return _errMsg(e).includes("reward too small");
-}
 
-/**
- * Probes logSteps via staticCall, doubling steps until it doesn't revert with "Reward too small".
- * Caps at stepLimit if the contract exposes it.
- */
-async function bumpStepsPastMinReward({ token, caller, buildArgs, startSteps }) {
-  let s = BigInt(startSteps || 1n);
-  if (s === 0n) s = 1n;
+  /* ---------------------- TOKEN-STAKING helper (DROP-IN) ---------------------- */
+  async function ensureTokenStake(token, funder, userSigner, requiredStake) {
+    const need = BigInt(requiredStake);
 
-  // Optional cap by stepLimit (prevents runaway)
-  let cap = null;
-  try {
-    if (typeof token.stepLimit === "function") {
-      cap = BigInt((await token.stepLimit()).toString());
+    let have = 0n;
+    if (typeof token.getStakeInfo === "function") {
+      const [bal] = await token.getStakeInfo(userSigner.address);
+      have = BigInt(bal.toString());
+    } else {
+      // fallback: if you ever remove getStakeInfo, this keeps tests alive
+      have = 0n;
     }
-  } catch {}
 
-  if (cap != null && s > cap) s = cap;
+    if (have >= need) return;
 
-  for (let i = 0; i < 18; i++) {
-    if (cap != null && s > cap) s = cap;
+    const delta = need - have;
 
-    const { payload, proofObj } = await buildArgs(s);
-
-    try {
-      await token.connect(caller).logSteps.staticCall(payload, proofObj);
-      return s; // ✅ good steps
-    } catch (e) {
-      if (!isRewardTooSmallError(e)) throw e; // not our issue
-      if (cap != null && s >= cap) {
-        throw new Error(`Reward too small even at stepLimit cap=${cap.toString()}`);
-      }
-      s = s * 2n;
-      if (s === 0n) s = 1n;
-      if (cap != null && s > cap) s = cap;
+    // Ensure user has enough GSTEP
+    const bal = await token.balanceOf(userSigner.address);
+    const balBI = BigInt(bal.toString());
+    if (balBI < delta) {
+      await (await token.connect(funder).transfer(userSigner.address, delta - balBI)).wait();
     }
+
+    // Stake = transfer tokens into the token contract
+    await (await token.connect(userSigner).stake(delta)).wait();
   }
 
-  throw new Error("Could not bump steps above min reward within bump iterations");
-}
+  /* ------------------- Reward-too-small auto-bump (DROP-IN) ------------------- */
+  function _errMsg(e) {
+    return `${e?.reason || ""} ${e?.shortMessage || ""} ${e?.message || ""}`.toLowerCase();
+  }
+  function isRewardTooSmallError(e) {
+    return _errMsg(e).includes("reward too small");
+  }
+
+  async function bumpStepsPastMinReward({ token, caller, buildArgs, startSteps }) {
+    let s = BigInt(startSteps || 1n);
+    if (s === 0n) s = 1n;
+
+    // Optional cap by stepLimit (prevents runaway)
+    let cap = null;
+    try {
+      if (typeof token.stepLimit === "function") {
+        cap = BigInt((await token.stepLimit()).toString());
+      }
+    } catch {}
+
+    if (cap != null && s > cap) s = cap;
+
+    for (let i = 0; i < 18; i++) {
+      if (cap != null && s > cap) s = cap;
+
+      const { payload, proofObj } = await buildArgs(s);
+
+      try {
+        await token.connect(caller).logSteps.staticCall(payload, proofObj);
+        return s; // ✅ good steps
+      } catch (e) {
+        if (!isRewardTooSmallError(e)) throw e;
+        if (cap != null && s >= cap) {
+          throw new Error(`Reward too small even at stepLimit cap=${cap.toString()}`);
+        }
+        s = s * 2n;
+        if (s === 0n) s = 1n;
+        if (cap != null && s > cap) s = cap;
+      }
+    }
+
+    throw new Error("Could not bump steps above min reward within bump iterations");
+  }
 
   // Typed-data signing helper for StepLog
   async function signStepLog(contract, signer, params) {
@@ -181,7 +210,7 @@ async function bumpStepsPastMinReward({ token, caller, buildArgs, startSteps }) 
     const value = {
       user: params.user,
       beneficiary: params.beneficiary,
-      steps: params.steps, // can be bigint
+      steps: params.steps,
       nonce: params.nonce,
       deadline: params.deadline,
       chainId,
@@ -219,7 +248,6 @@ async function bumpStepsPastMinReward({ token, caller, buildArgs, startSteps }) 
       const b1 = await token.balanceOf(user1.address);
 
       const received = b1 - b0;
-
       expect(received).to.be.lte(transferAmount);
 
       const expectedIf1Pct = (transferAmount * 99n) / 100n;
@@ -237,209 +265,191 @@ async function bumpStepsPastMinReward({ token, caller, buildArgs, startSteps }) 
       await network.provider.send("evm_mine");
     });
 
-   it("Should reward steps through API", async function () {
-  const { token, user1, apiSigner } = await loadFixture(deployFixture);
+    it("Should reward steps through API", async function () {
+      const { token, user1, apiSigner, funder } = await loadFixture(deployFixture);
 
-  // Even if trusted API doesn't require stake, harmless to keep
-  await token.connect(user1).stake({ value: ethers.parseEther("0.01") });
+      // ✅ TOKEN staking model (not payable)
+      // If API path does not require stake, this is still harmless; it keeps tests stable if policy changes.
+      await ensureTokenStake(token, funder, user1, ethers.parseEther("10"));
 
-  // Build args for probe + final tx
-  const buildArgs = async (stepsBI) => {
-    const nonce = await token.nonces(user1.address);
-    const deadline = (await time.latest()) + 3600;
+      const buildArgs = async (stepsBI) => {
+        const nonce = await token.nonces(user1.address);
+        const deadline = (await time.latest()) + 3600;
 
-    const signature = await signStepLog(token, apiSigner, {
-      user: user1.address,
-      beneficiary: user1.address,
-      steps: stepsBI,
-      nonce,
-      deadline,
-      source: "googlefit",
-      version: "1.0.0",
+        const signature = await signStepLog(token, apiSigner, {
+          user: user1.address,
+          beneficiary: user1.address,
+          steps: stepsBI,
+          nonce,
+          deadline,
+          source: "googlefit",
+          version: "1.0.0",
+        });
+
+        return {
+          payload: {
+            user: user1.address,
+            beneficiary: user1.address,
+            steps: stepsBI,
+            nonce,
+            deadline,
+            source: "googlefit",
+            version: "1.0.0",
+          },
+          proofObj: { signature, proof: [], attestation: "0x" },
+        };
+      };
+
+      let steps = 100n;
+      steps = await bumpStepsPastMinReward({
+        token,
+        caller: apiSigner,
+        buildArgs,
+        startSteps: steps,
+      });
+
+      const rewardRate = BigInt((await token.rewardRate()).toString());
+      const upperBound = steps * rewardRate;
+
+      const currentMonthMinted = await token.currentMonthMinted();
+      const currentCap = await token.currentMonthlyCap();
+      if (currentMonthMinted + upperBound > currentCap) return;
+
+      const { payload, proofObj } = await buildArgs(steps);
+
+      const bal0 = await token.balanceOf(user1.address);
+      const tx = await token.connect(apiSigner).logSteps(payload, proofObj);
+      await expect(tx).to.emit(token, "RewardClaimed");
+      await tx.wait();
+      const bal1 = await token.balanceOf(user1.address);
+
+      const delta = bal1 - bal0;
+      expect(delta).to.be.gt(0n);
+      expect(delta).to.be.lte(upperBound);
     });
 
-    return {
-      payload: {
-        user: user1.address,
-        beneficiary: user1.address,
-        steps: stepsBI,
-        nonce,
-        deadline,
-        source: "googlefit",
-        version: "1.0.0",
-      },
-      proofObj: { signature, proof: [], attestation: "0x" },
-    };
-  };
+    it("Should allow direct user submissions when permitted", async function () {
+      const { token, user1, admin, funder } = await loadFixture(deployFixture);
 
-  // Start at something reasonable and bump if needed (avoids Reward too small)
-  let steps = 100n;
-  steps = await bumpStepsPastMinReward({
-    token,
-    caller: apiSigner, // trusted API path
-    buildArgs,
-    startSteps: steps,
-  });
+      // ✅ TOKEN staking model (not payable)
+      await ensureTokenStake(token, funder, user1, ethers.parseEther("10"));
 
-  // Naive upper bound (real mint may be discounted by factors)
-  const rewardRate = BigInt((await token.rewardRate()).toString());
-  const upperBound = steps * rewardRate;
+      if (typeof token.configureSource === "function") {
+        await token.connect(admin).configureSource("direct", false, false);
+      }
 
-  // Monthly cap guard (safe to guard with upper bound)
-  const currentMonthMinted = await token.currentMonthMinted();
-  const currentCap = await token.currentMonthlyCap();
-  if (currentMonthMinted + upperBound > currentCap) return;
+      const buildArgs = async (stepsBI) => {
+        const nonce = await token.nonces(user1.address);
+        const deadline = (await time.latest()) + 3600;
 
-  const { payload, proofObj } = await buildArgs(steps);
+        const signature = await signStepLog(token, user1, {
+          user: user1.address,
+          beneficiary: user1.address,
+          steps: stepsBI,
+          nonce,
+          deadline,
+          source: "direct",
+          version: "1.0.0",
+        });
 
-  // ✅ Assert by observing actual minted delta (robust vs payout factors like 80%)
-  const bal0 = await token.balanceOf(user1.address);
-  const tx = await token.connect(apiSigner).logSteps(payload, proofObj);
-  await expect(tx).to.emit(token, "RewardClaimed");
-  await tx.wait();
-  const bal1 = await token.balanceOf(user1.address);
+        return {
+          payload: {
+            user: user1.address,
+            beneficiary: user1.address,
+            steps: stepsBI,
+            nonce,
+            deadline,
+            source: "direct",
+            version: "1.0.0",
+          },
+          proofObj: { signature, proof: [], attestation: "0x" },
+        };
+      };
 
-  const delta = bal1 - bal0;
-  expect(delta).to.be.gt(0n);
-  expect(delta).to.be.lte(upperBound);
-});
+      let steps = 100n;
+      steps = await bumpStepsPastMinReward({
+        token,
+        caller: user1,
+        buildArgs,
+        startSteps: steps,
+      });
 
-it("Should allow direct user submissions when permitted", async function () {
-  const { token, user1, admin } = await loadFixture(deployFixture);
+      const rewardRate = BigInt((await token.rewardRate()).toString());
+      const upperBound = steps * rewardRate;
 
-  await token.connect(user1).stake({ value: ethers.parseEther("0.01") });
-  if (typeof token.configureSource === "function") {
-    await token.connect(admin).configureSource("direct", false, false);
-  }
+      const currentMonthMinted = await token.currentMonthMinted();
+      const currentCap = await token.currentMonthlyCap();
+      if (currentMonthMinted + upperBound > currentCap) return;
 
-  const buildArgs = async (stepsBI) => {
-    const nonce = await token.nonces(user1.address);
-    const deadline = (await time.latest()) + 3600;
+      const { payload, proofObj } = await buildArgs(steps);
 
-    const signature = await signStepLog(token, user1, {
-      user: user1.address,
-      beneficiary: user1.address,
-      steps: stepsBI,
-      nonce,
-      deadline,
-      source: "direct",
-      version: "1.0.0",
+      const bal0 = await token.balanceOf(user1.address);
+      const tx = await token.connect(user1).logSteps(payload, proofObj);
+      await expect(tx).to.emit(token, "RewardClaimed");
+      await tx.wait();
+      const bal1 = await token.balanceOf(user1.address);
+
+      const delta = bal1 - bal0;
+      expect(delta).to.be.gt(0n);
+      expect(delta).to.be.lte(upperBound);
     });
 
-    return {
-      payload: {
-        user: user1.address,
-        beneficiary: user1.address,
-        steps: stepsBI,
-        nonce,
-        deadline,
-        source: "direct",
-        version: "1.0.0",
-      },
-      proofObj: { signature, proof: [], attestation: "0x" },
-    };
-  };
+    it("Should enforce caller and nonce rules", async function () {
+      const { token, user1, apiSigner, user2 } = await loadFixture(deployFixture);
 
-  let steps = 100n;
-  steps = await bumpStepsPastMinReward({
-    token,
-    caller: user1, // user path
-    buildArgs,
-    startSteps: steps,
-  });
+      const buildArgsApi = async (stepsBI, nonceOverride = null) => {
+        const nonce = nonceOverride ?? (await token.nonces(user1.address));
+        const deadline = (await time.latest()) + 3600;
 
-  const rewardRate = BigInt((await token.rewardRate()).toString());
-  const upperBound = steps * rewardRate;
+        const apiSig = await signStepLog(token, apiSigner, {
+          user: user1.address,
+          beneficiary: user1.address,
+          steps: stepsBI,
+          nonce,
+          deadline,
+          source: "googlefit",
+          version: "1.0.0",
+        });
 
-  const currentMonthMinted = await token.currentMonthMinted();
-  const currentCap = await token.currentMonthlyCap();
-  if (currentMonthMinted + upperBound > currentCap) return;
+        return {
+          payload: {
+            user: user1.address,
+            beneficiary: user1.address,
+            steps: stepsBI,
+            nonce,
+            deadline,
+            source: "googlefit",
+            version: "1.0.0",
+          },
+          proofObj: { signature: apiSig, proof: [], attestation: "0x" },
+          nonce,
+          deadline,
+          apiSig,
+        };
+      };
 
-  const { payload, proofObj } = await buildArgs(steps);
+      let steps = 50n;
+      steps = await bumpStepsPastMinReward({
+        token,
+        caller: apiSigner,
+        buildArgs: async (s) => {
+          const { payload, proofObj } = await buildArgsApi(s);
+          return { payload, proofObj };
+        },
+        startSteps: steps,
+      });
 
-  const bal0 = await token.balanceOf(user1.address);
-  const tx = await token.connect(user1).logSteps(payload, proofObj);
-  await expect(tx).to.emit(token, "RewardClaimed");
-  await tx.wait();
-  const bal1 = await token.balanceOf(user1.address);
+      const first = await buildArgsApi(steps);
+      await token.connect(apiSigner).logSteps(first.payload, first.proofObj);
 
-  const delta = bal1 - bal0;
-  expect(delta).to.be.gt(0n);
-  expect(delta).to.be.lte(upperBound);
-});
+      await expect(token.connect(apiSigner).logSteps(first.payload, first.proofObj)).to.be.revertedWith(
+        "Invalid nonce"
+      );
 
-   it("Should enforce caller and nonce rules", async function () {
-  const { token, user1, apiSigner, user2 } = await loadFixture(deployFixture);
+      const nonce2 = await token.nonces(user1.address);
+      const deadline2 = (await time.latest()) + 3600;
 
-  // Pick steps that won't trip "Reward too small" on the API path
-  const buildArgsApi = async (stepsBI, nonceOverride = null) => {
-    const nonce = nonceOverride ?? (await token.nonces(user1.address));
-    const deadline = (await time.latest()) + 3600;
-
-    const apiSig = await signStepLog(token, apiSigner, {
-      user: user1.address,
-      beneficiary: user1.address,
-      steps: stepsBI,
-      nonce,
-      deadline,
-      source: "googlefit",
-      version: "1.0.0",
-    });
-
-    return {
-      payload: {
-        user: user1.address,
-        beneficiary: user1.address,
-        steps: stepsBI,
-        nonce,
-        deadline,
-        source: "googlefit",
-        version: "1.0.0",
-      },
-      proofObj: { signature: apiSig, proof: [], attestation: "0x" },
-      nonce,
-      deadline,
-      apiSig,
-    };
-  };
-
-  let steps = 50n;
-  steps = await bumpStepsPastMinReward({
-    token,
-    caller: apiSigner,
-    buildArgs: async (s) => {
-      const { payload, proofObj } = await buildArgsApi(s);
-      return { payload, proofObj };
-    },
-    startSteps: steps,
-  });
-
-  // 1) Valid API submission
-  const first = await buildArgsApi(steps);
-  await token.connect(apiSigner).logSteps(first.payload, first.proofObj);
-
-  // 2) Reuse same nonce should fail
-  await expect(
-    token.connect(apiSigner).logSteps(first.payload, first.proofObj)
-  ).to.be.revertedWith("Invalid nonce");
-
-  // 3) Caller must be user OR trusted API: user2 is neither
-  const nonce2 = await token.nonces(user1.address);
-  const deadline2 = (await time.latest()) + 3600;
-
-  const userSig = await signStepLog(token, user1, {
-    user: user1.address,
-    beneficiary: user1.address,
-    steps,
-    nonce: nonce2,
-    deadline: deadline2,
-    source: "googlefit",
-    version: "1.0.0",
-  });
-
-  await expect(
-    token.connect(user2).logSteps(
-      {
+      const userSig = await signStepLog(token, user1, {
         user: user1.address,
         beneficiary: user1.address,
         steps,
@@ -447,12 +457,23 @@ it("Should allow direct user submissions when permitted", async function () {
         deadline: deadline2,
         source: "googlefit",
         version: "1.0.0",
-      },
-      { signature: userSig, proof: [], attestation: "0x" }
-    )
-  ).to.be.revertedWith("Caller must be user or trusted API");
-});
+      });
 
+      await expect(
+        token.connect(user2).logSteps(
+          {
+            user: user1.address,
+            beneficiary: user1.address,
+            steps,
+            nonce: nonce2,
+            deadline: deadline2,
+            source: "googlefit",
+            version: "1.0.0",
+          },
+          { signature: userSig, proof: [], attestation: "0x" }
+        )
+      ).to.be.revertedWith("Caller must be user or trusted API");
+    });
   });
 
   describe("Admin Functions", function () {

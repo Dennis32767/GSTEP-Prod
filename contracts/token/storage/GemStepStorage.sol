@@ -5,10 +5,10 @@ pragma solidity ^0.8.30;
 /// @notice Pure storage + constants + events + structs for GemStep.
 /// @dev
 ///  IMPORTANT STORAGE-LAYOUT RULES (Upgradeable):
-///  - **Do not reorder** state variables, structs, or mappings.
-///  - **Do not change** visibility/types of existing state variables.
-///  - New variables must be appended only (or consumed from `__gap` if you manage it carefully).
-///  - Constants/events/struct definitions do not consume storage slots, but keep ordering stable anyway
+///  - Do not reorder state variables, structs, or mappings.
+///  - Do not change visibility/types of existing state variables.
+///  - New variables must be appended only (or consumed from `__gap` if managed carefully).
+///  - Constants/events/struct definitions do not consume storage slots, but keep ordering stable
 ///    to reduce upgrade review risk and maintain audit parity.
 ///
 ///  This contract is intended to be inherited by core/modules. It contains:
@@ -169,6 +169,35 @@ abstract contract GemStepStorage {
 
     /// @dev Target stake policy percent (derived from oracle price, in ETH terms).
     uint256 internal constant TARGET_STAKE_PERCENT = 10;
+    
+    /* =============================================================
+                    STAKING / SPLIT POLICY CONSTANTS
+    ============================================================= */
+
+    /// @dev Minimum time considered for any duration boost.
+    uint256 internal constant STAKE_MIN_AGE = 7 days;
+
+    /// @dev Duration cap used for discount scaling (anything older is treated as this age).
+    uint256 internal constant STAKE_MAX_AGE = 180 days;
+
+    /// @dev Absolute maximum reduction applied to (burn+treasury) combined.
+    uint256 internal constant STAKE_MAX_CUT_DISCOUNT_BPS = 1_200;
+
+    /// @dev Floor for (burn+treasury) combined after discount (keep some cut always).
+    uint256 internal constant STAKE_MIN_CUT_BPS = 800;
+
+    /// @dev Stake “power” thresholds (tune to tokenomics).
+    uint256 internal constant STAKE_TIER1 = 10_000 * 1e18;
+    uint256 internal constant STAKE_TIER2 = 50_000 * 1e18;
+    uint256 internal constant STAKE_TIER3 = 200_000 * 1e18;
+
+    /// @dev Base discount from amount alone (before duration bonus).
+    uint256 internal constant STAKE_D1 = 200; // 2.00%
+    uint256 internal constant STAKE_D2 = 500; // 5.00%
+    uint256 internal constant STAKE_D3 = 900; // 9.00%
+
+    /// @dev Staking-only pause (independent of OZ Pausable).
+    bool internal stakingPaused;
 
     /* =============================================================
                                    STATE
@@ -313,8 +342,11 @@ abstract contract GemStepStorage {
     /// @dev Suspension timestamp per user.
     mapping(address => uint256) internal suspendedUntil;
 
-    /// @dev Staked ETH per user (wei).
+    /// @dev Staked GSTEP balance per user (token-staking module).
     mapping(address => uint256) internal stakeBalance;
+
+    /// @dev Weighted stake start timestamp per user (used for stake duration).
+    mapping(address => uint256) internal stakeStart;
 
     /// @dev Trusted API caller registry.
     mapping(address => bool) internal isTrustedAPI;
@@ -421,6 +453,9 @@ abstract contract GemStepStorage {
     event L2PausedByL1(bool paused);
     event L2ParamsUpdatedByL1(uint256 stepLimit, uint256 rewardRate);
     event L2ToL1Tx(uint256 indexed id, address to, bytes data);
+    
+    /// @notice Emitted when staking-only pause is toggled.
+    event StakingPauseSet(bool paused);
 
     /* =============================================================
                                DATA STRUCTURES

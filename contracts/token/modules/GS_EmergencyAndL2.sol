@@ -108,6 +108,29 @@ abstract contract GS_EmergencyAndL2 is GemStepCore {
         emit L2PausedByL1(paused_);
     }
 
+        /// @notice L1-driven staking pause toggle on L2.
+    /// @param paused_ True to pause staking; false to unpause.
+    /// @dev
+    ///  - Restricted to calls originating from the configured L1 governance address
+    ///    via Arbitrum Nitro L1->L2 address aliasing.
+    ///  - Affects ONLY staking user actions guarded by {whenStakingNotPaused}
+    ///    (i.e., {stake} and {withdrawStake}).
+    ///  - Does NOT pause transfers, step logging, minting, or emergency withdrawals.
+    function l2SetStakingPause(bool paused_) external onlyFromL1Governance {
+        stakingPaused = paused_;
+        emit StakingPauseSet(paused_);
+    }
+
+    /// @notice Emergency staking pause toggle on L2 (local ops).
+    /// @param paused_ True to pause staking; false to unpause.
+    /// @dev
+    ///  - Requires {EMERGENCY_ADMIN_ROLE}.
+    ///  - Same effect as {l2SetStakingPause}, but callable directly on L2.
+    function setStakingPaused(bool paused_) external onlyRole(EMERGENCY_ADMIN_ROLE) {
+        stakingPaused = paused_;
+        emit StakingPauseSet(paused_);
+    }
+
     /// @notice L1-driven critical parameter updates (example).
     /// @param newStepLimit New step limit.
     /// @param newRewardRate New reward rate.

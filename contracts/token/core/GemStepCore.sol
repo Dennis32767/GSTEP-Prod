@@ -18,8 +18,8 @@ import "../../token/interfaces/IPriceOracleV2.sol";
 /// @notice Core contract wiring OpenZeppelin upgradeable parents, initializer, and cross-cutting overrides.
 /// @dev
 ///  - This core is intentionally `abstract` and declares internal hook functions implemented by modules
-///    (e.g. GS_StepsAndVerification, GS_AnomalyAndFraud, GS_MintingAndSupply, etc.).
-///  - Storage is inherited from {GemStepStorage}; do not reorder inherited base contracts.
+///    (e.g. GS_StepsAndVerification, GS_AnomalyAndFraud, GS_MintingAndSupply, GS_Staking, etc.).
+///  - Storage is inherited from {GemStepStorage}. Keep inherited base order stable for audit parity.
 ///  - Uses a custom hard cap check via {_mintWithHardCap} instead of ERC20CappedUpgradeable to save bytecode.
 abstract contract GemStepCore is
     Initializable,
@@ -78,10 +78,36 @@ abstract contract GemStepCore is
     ) internal virtual;
 
     /// @notice Mint with monthly cap logic (and any split/burn logic) implemented in module.
-    /// @param account Recipient.
-    /// @param amount Amount to mint.
+    /// @param account Recipient (beneficiary).
+    /// @param amount Total “gross” reward amount before split (18 decimals).
     /// @dev Implemented in a module; expected to call {_checkHalving} and/or {_syncMonth} as needed.
     function _mintWithCap(address account, uint256 amount) internal virtual;
+
+    /* =============================================================
+                      STAKING SPLIT HOOKS (MODULES)
+       ============================================================= */
+
+    /// @notice Apply stake discount to a base split and return final (user,burn,treasury) bps.
+    /// @param user Beneficiary whose stake affects the split.
+    /// @param userBps Base user portion bps.
+    /// @param burnBps Base burn portion bps.
+    /// @param treasuryBps Base treasury portion bps.
+    /// @return u Final user bps.
+    /// @return b Final burn bps.
+    /// @return t Final treasury bps.
+    /// @dev Implemented by staking module (e.g. {GS_Staking}); sum MUST equal {BPS_BASE}.
+    function _applyStakeDiscountToSplit(
+        address user,
+        uint256 userBps,
+        uint256 burnBps,
+        uint256 treasuryBps
+    ) internal view virtual returns (uint256 u, uint256 b, uint256 t);
+
+    /// @notice Return discount bps applied to combined (burn+treasury) cut for a user.
+    /// @param user Beneficiary whose stake affects the discount.
+    /// @return Discount in bps applied to (burn+treasury) combined.
+    /// @dev Implemented by staking module (e.g. {GS_Staking}).
+    function _cutDiscountBps(address user) internal view virtual returns (uint256);
 
     /* =============================================================
                                INTERNAL HELPERS
@@ -134,7 +160,7 @@ abstract contract GemStepCore is
         // Arbitrum ETH bridge (can be made configurable via a setter if desired).
         arbEthBridge = payable(0x8315177aB297bA92A06054cE80a67Ed4DBd7ed3a);
 
-        // Oracle & Treasury (set once at initialization).
+        // Oracle & Treasury (stored as addresses; modules can cast to IPriceOracleV2 where needed).
         priceOracle = _priceOracle;
         treasury = _treasury;
 
@@ -145,7 +171,6 @@ abstract contract GemStepCore is
         lastStakeAdjustment = ts;
 
         /* ------------------------------ Roles ------------------------------ */
-        // Production-safe: grant governance/admin immediately to `admin`.
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(PAUSER_ROLE, admin);
         _grantRole(MINTER_ROLE, admin);
@@ -155,8 +180,7 @@ abstract contract GemStepCore is
         _grantRole(API_SIGNER_ROLE, admin);
         _grantRole(PARAMETER_ADMIN_ROLE, admin);
 
-        // Optional bootstrap: also grant deployer for smoother scripted setup,
-        // but ONLY if different from admin (so you can revoke later).
+        // Optional bootstrap for scripted setup (revoke later if desired).
         address deployer = _msgSender();
         if (deployer != admin) {
             _grantRole(DEFAULT_ADMIN_ROLE, deployer);
@@ -170,16 +194,9 @@ abstract contract GemStepCore is
         }
 
         /* ------------------------- Tokenomics defaults --------------------- */
-        // No fee-on-transfer; any burn/split occurs in minting logic (module).
-        burnFee = 0;
-
-        // Default reward rate from storage constant.
+        burnFee = 0; // fee-on-transfer removed; splits occur in minting module
         rewardRate = REWARD_RATE_BASE;
-
-        // Step limit (keep literal if you don't have a constant).
         stepLimit = 5000;
-
-        // Signature validity window for EIP-712 / offchain auth flows.
         signatureValidityPeriod = DEFAULT_SIGNATURE_VALIDITY;
 
         /* ----------------------- Month / cap tracking ---------------------- */
@@ -194,7 +211,9 @@ abstract contract GemStepCore is
         /* -------------------------- Initial mint --------------------------- */
         // Mint initial supply to Treasury (NOT deployer).
         _mintWithHardCap(treasury, initialSupply);
-        distributedTotal += initialSupply;
+        unchecked {
+            distributedTotal += initialSupply;
+        }
 
         /* -------------------------- Default sources ------------------------ */
         _configureSource("fitbit", true, true);
@@ -228,10 +247,10 @@ abstract contract GemStepCore is
     ///  - Threshold uses the geometric series form:
     ///    threshold(h) = MAX_SUPPLY - (MAX_SUPPLY >> (h + 1))
     ///  - On each halving:
-    ///      - monthly cap doubles (more users)
-    ///      - reward rate halves (higher token value assumption)
-    ///  - Guards cap overflow (defensive; halvingCount is bounded).
-    function _checkHalving() internal {
+    ///      - monthly cap doubles
+    ///      - reward rate halves
+    ///  - Guards cap overflow defensively.
+    function _checkHalving() internal virtual {
         if (halvingCount >= 63) return;
 
         uint256 threshold = MAX_SUPPLY - (MAX_SUPPLY >> (halvingCount + 1));
@@ -258,14 +277,13 @@ abstract contract GemStepCore is
     }
 
     /// @notice Returns the hard maximum supply (cap).
-    /// @return The MAX_SUPPLY constant.
     function cap() public pure returns (uint256) {
         return MAX_SUPPLY;
     }
 
     /// @notice Synchronize month tracking (rollover if block timestamp enters a new month window).
     /// @dev Resets {currentMonthMinted} when month advances and emits rollover events.
-    function _syncMonth() internal {
+    function _syncMonth() internal virtual {
         uint256 newMonth = block.timestamp / SECONDS_PER_MONTH;
         if (newMonth > currentMonth) {
             currentMonth = newMonth;
@@ -294,21 +312,18 @@ abstract contract GemStepCore is
     /// @dev Custom cap check to replace ERC20CappedUpgradeable (bytecode savings).
     /// @param account Recipient.
     /// @param amount Amount to mint.
-    function _mintWithHardCap(address account, uint256 amount) internal {
+    function _mintWithHardCap(address account, uint256 amount) internal virtual {
         require(totalSupply() + amount <= MAX_SUPPLY, "ERC20Capped: cap exceeded");
         _mint(account, amount);
     }
 
     /// @notice Burn tokens from the caller.
     /// @param amount Amount to burn.
-    /// @dev Leaves allowance-based burns (burnFrom) to be implemented if desired.
     function burn(uint256 amount) public virtual {
         _burn(_msgSender(), amount);
     }
 
     /// @notice ERC165 interface support.
-    /// @param interfaceId Interface selector.
-    /// @return True if supported.
     function supportsInterface(bytes4 interfaceId)
         public
         view
@@ -353,5 +368,15 @@ abstract contract GemStepCore is
     /// @return True if the source is enabled/valid.
     function isSourceValid(string calldata source) public view returns (bool) {
         return validSources[source];
+    }
+
+    /* =============================================================
+                              OPTIONAL GETTERS
+       ============================================================= */
+
+    /// @notice Returns the configured price oracle as an interface.
+    /// @dev Convenience helper; does not change storage layout.
+    function _oracle() internal view returns (IPriceOracleV2) {
+        return IPriceOracleV2(priceOracle);
     }
 }

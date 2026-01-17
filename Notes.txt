@@ -30,6 +30,8 @@ npx hardhat coverage --testfiles "test/Upgrade.flow.optionA.test.js"
 npx hardhat coverage --testfiles "test/Upgrade.flow.test.js"
 npx hardhat coverage --testfiles "test/Upgrades.extra.spec.js"
 npx hardhat coverage --testfiles "test/withdrawStake.spec.js"
+npx hardhat coverage --testfiles "test/PostDeployment.onchain.test.js"
+
 
 
 npx hardhat test test/Coverage.boost.test.js

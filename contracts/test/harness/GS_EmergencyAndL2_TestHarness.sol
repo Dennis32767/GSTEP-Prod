@@ -111,6 +111,12 @@ abstract contract GemStepCoreHarness is MinimalAccess, MinimalPausable, MinimalR
     // --- Minimal ERC20-like accounting so _transfer & totalSupply exist ---
     mapping(address => uint256) internal _balances;
     uint256 internal _totalSupply;
+    
+    // staking-only pause flag (mirrors GemStepStorage)
+    bool public stakingPaused;
+
+    // emitted by staking pause toggles (mirrors GemStepStorage)
+    event StakingPauseSet(bool paused);
 
     function totalSupply() public view returns (uint256) { return _totalSupply; }
     function balanceOf(address a) public view returns (uint256) { return _balances[a]; }
@@ -354,6 +360,24 @@ contract GS_EmergencyAndL2_TestHarness is GS_EmergencyAndL2_H {
     function exposedAlias(address l1) external pure returns (address) {
         return AddressAliasHelperHarness.applyL1ToL2Alias(l1);
     }
+    /* =============================================================
+                     WRAPPERS FOR STAKING-PAUSE TESTS
+       ============================================================= */
+
+    function isStakingPaused() external view returns (bool) {
+        return stakingPaused;
+    }
+
+    function l2SetStakingPause(bool paused_) external onlyFromL1Governance {
+        stakingPaused = paused_;
+        emit StakingPauseSet(paused_);
+    }
+
+    function emergencySetStakingPaused(bool paused_) external onlyRole(EMERGENCY_ADMIN_ROLE) {
+        stakingPaused = paused_;
+        emit StakingPauseSet(paused_);
+    }
 
     receive() external payable {}
+    
 }

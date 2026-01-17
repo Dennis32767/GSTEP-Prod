@@ -37,10 +37,13 @@ function toBigIntMaybe(x) {
 }
 
 async function getUserStakeSafe(token, userAddr) {
+  if (typeof token.getStakeInfo === "function") {
+    const [bal] = await token.getStakeInfo(userAddr);
+    return BigInt(bal.toString());
+  }
   if (typeof token.getUserCoreStatus !== "function") return 0n;
-  const st = await token.getUserCoreStatus(userAddr);
 
-  // stake is typically the largest numeric value in the tuple; skip booleans
+  const st = await token.getUserCoreStatus(userAddr);
   let best = 0n;
   for (let i = 0; i < st.length; i++) {
     const v = toBigIntMaybe(st[i]);
@@ -48,6 +51,38 @@ async function getUserStakeSafe(token, userAddr) {
     if (v > best) best = v;
   }
   return best;
+}
+
+/**
+ * Ensures `userSigner` has staked at least `requiredStake` GSTEP (token staking).
+ * - Tops up user balance via `funder.transfer(...)` if needed
+ * - Then calls `stake(delta)` (token transfer into contract)
+ */
+async function ensureTokenStake(token, funder, userSigner, requiredStake) {
+  const need = BigInt(requiredStake);
+
+  let have = 0n;
+  if (typeof token.getStakeInfo === "function") {
+    const [bal] = await token.getStakeInfo(userSigner.address);
+    have = BigInt(bal.toString());
+  } else {
+    have = await getUserStakeSafe(token, userSigner.address);
+  }
+
+  if (have >= need) return;
+
+  const delta = need - have;
+
+  // Ensure user has enough GSTEP to transfer into staking
+  const bal = await token.balanceOf(userSigner.address);
+  const balBI = BigInt(bal.toString());
+
+  if (balBI < delta) {
+    const topUp = delta - balBI;
+    await (await token.connect(funder).transfer(userSigner.address, topUp)).wait();
+  }
+
+  await (await token.connect(userSigner).stake(delta)).wait();
 }
 
 /* ------------------- Reward-too-small bounded bump (DROP-IN) ------------------- */
@@ -59,7 +94,7 @@ async function getUserStakeSafe(token, userAddr) {
 async function ensureStepsAboveMinRewardBounded(token, caller, steps, buildArgsFn, opts = {}) {
   let s = BigInt(steps || 1);
 
-  const { maxStepsCap = null, submitter = null, withStake = false } = opts;
+  const { maxStepsCap = null, submitter = null, withStake = false, funder = null } = opts;
 
   // hard cap by stepLimit if available
   let stepLimit = null;
@@ -84,15 +119,8 @@ async function ensureStepsAboveMinRewardBounded(token, caller, steps, buildArgsF
     const stakePerStep = BigInt((await token.currentStakePerStep()).toString());
     const worstNeed = cap * stakePerStep;
 
-    let have = 0n;
-    if (typeof token.getUserCoreStatus === "function") {
-have = await getUserStakeSafe(token, submitter.address);
-
-    }
-
-    if (have < worstNeed) {
-      await token.connect(submitter).stake({ value: worstNeed - have });
-    }
+    if (!funder) throw new Error("ensureStepsAboveMinRewardBounded requires opts.funder for token staking");
+    await ensureTokenStake(token, funder, submitter, worstNeed);
   }
 
   for (let i = 0; i < 18; i++) {
@@ -123,7 +151,18 @@ have = await getUserStakeSafe(token, submitter.address);
 }
 
 /* ----------------------------- EIP-712 helper ---------------------------- */
-async function signStepData(token, userAddr, beneficiary, steps, nonce, deadline, chainId, source, version, signer) {
+async function signStepData(
+  token,
+  userAddr,
+  beneficiary,
+  steps,
+  nonce,
+  deadline,
+  chainId,
+  source,
+  version,
+  signer
+) {
   const domain = {
     name: DOMAIN_NAME,
     version: DOMAIN_VER,
@@ -220,7 +259,7 @@ async function enableSourceNoProofNoAttestation(token, admin, source) {
   if (typeof token.getSourceConfig === "function") {
     const cfg = await token.getSourceConfig(source);
 
-    // Your layout (per your GS_Views comment): (requiresProof, requiresAttestation, merkleRoot, maxStepsPerDay, minInterval)
+    // Layout: (requiresProof, requiresAttestation, merkleRoot, maxStepsPerDay, minInterval)
     const requiresProof = Boolean(cfg[0]);
     const requiresAtt = Boolean(cfg[1]);
     const root = cfg[2];
@@ -236,7 +275,6 @@ async function minStepsForReward(token) {
   const rr = BigInt((await token.rewardRate()).toString());
 
   let minReward = 0n;
-  // Your contract uses MIN_REWARD_AMOUNT
   if (typeof token.MIN_REWARD_AMOUNT === "function") {
     minReward = BigInt((await token.MIN_REWARD_AMOUNT()).toString());
   } else if (typeof token.minRewardAmount === "function") {
@@ -274,12 +312,12 @@ async function getPerSourceLimits(token, source) {
     minInterval = BigInt(cfg[minIdx].toString());
   }
 
-  // ✅ Fallback to global policy if per-source values are unset (0)
+  // Fallbacks
   if (maxStepsPerDay == null || maxStepsPerDay === 0n) {
     if (typeof token.MAX_STEPS_PER_DAY === "function") {
       maxStepsPerDay = BigInt((await token.MAX_STEPS_PER_DAY()).toString());
     } else {
-      maxStepsPerDay = 10_000n; // safe fallback
+      maxStepsPerDay = 10_000n;
     }
   }
 
@@ -304,10 +342,9 @@ async function bumpUtcDay() {
 }
 
 /**
- * ✅ DROP-IN replacement for submitSteps()
- * - Bounded probe so it never triggers Daily limit exceeded while bumping
- * - Pre-funds stake BEFORE probing (user path) so probe never hits Insufficient stake
- * - Auto-bumps UTC day if remaining daily allowance can't reach MIN_REWARD
+ * ✅ submitSteps() for TOKEN STAKING model
+ * - If withStake && !isApiSigned => needs opts.funder
+ * - Bounded probe so it won't hit daily cap while bumping to avoid "Reward too small"
  */
 async function submitSteps(token, submitter, steps, opts = {}) {
   const {
@@ -321,6 +358,7 @@ async function submitSteps(token, submitter, steps, opts = {}) {
     isApiSigned = false,
     maxStepsCap: maxStepsCapOverride = null,
     autoBumpDayIfCapTooSmall = true,
+    funder = null,
   } = opts;
 
   const { chainId } = await ethers.provider.getNetwork();
@@ -333,19 +371,18 @@ async function submitSteps(token, submitter, steps, opts = {}) {
       const usedToday = BigInt(usedTodayRaw.toString());
       const { maxStepsPerDay } = await getPerSourceLimits(token, source);
       maxStepsCap = usedToday >= maxStepsPerDay ? 0n : (maxStepsPerDay - usedToday);
-        // ✅ If remaining allowance is 0, move to next UTC day (or throw)
-  if (maxStepsCap === 0n) {
-    if (autoBumpDayIfCapTooSmall) {
-      await bumpUtcDay();
-      const { maxStepsPerDay } = await getPerSourceLimits(token, source);
-      maxStepsCap = maxStepsPerDay;
-    } else {
-      throw new Error("No remaining daily allowance for this (user, source)");
-    }
-  }
+
+      if (maxStepsCap === 0n) {
+        if (autoBumpDayIfCapTooSmall) {
+          await bumpUtcDay();
+          const { maxStepsPerDay: refreshed } = await getPerSourceLimits(token, source);
+          maxStepsCap = refreshed;
+        } else {
+          throw new Error("No remaining daily allowance for this (user, source)");
+        }
+      }
     }
   } catch {}
-  
 
   if (maxStepsCapOverride != null) {
     const ov = BigInt(maxStepsCapOverride);
@@ -375,7 +412,15 @@ async function submitSteps(token, submitter, steps, opts = {}) {
       signer
     );
 
-    const payload = { user: submitter.address, beneficiary, steps: stepsBI, nonce, deadline, source, version };
+    const payload = {
+      user: submitter.address,
+      beneficiary,
+      steps: stepsBI,
+      nonce,
+      deadline,
+      source,
+      version,
+    };
     const proofObj = { signature: sig, proof, attestation };
     return [payload, proofObj];
   };
@@ -388,6 +433,7 @@ async function submitSteps(token, submitter, steps, opts = {}) {
       maxStepsCap,
       submitter,
       withStake: (!isApiSigned && withStake),
+      funder,
     });
 
   try {
@@ -396,7 +442,6 @@ async function submitSteps(token, submitter, steps, opts = {}) {
     const msg = String(e?.message || "");
     if (autoBumpDayIfCapTooSmall && msg.toLowerCase().includes("reward too small even at cap=")) {
       await bumpUtcDay();
-      // after day bump, cap is full daily cap
       const { maxStepsPerDay } = await getPerSourceLimits(token, source);
       maxStepsCap = maxStepsPerDay;
       stepsBI = await doProbe();
@@ -409,12 +454,8 @@ async function submitSteps(token, submitter, steps, opts = {}) {
   if (!isApiSigned && withStake) {
     const stakePerStep = BigInt((await token.currentStakePerStep()).toString());
     const need = stepsBI * stakePerStep;
-
-    let have = 0n;
-    if (typeof token.getUserCoreStatus === "function") {
-have = await getUserStakeSafe(token, submitter.address);
-    }
-    if (have < need) await token.connect(submitter).stake({ value: need - have });
+    if (!funder) throw new Error("submitSteps requires opts.funder for token staking");
+    await ensureTokenStake(token, funder, submitter, need);
   }
 
   const [payload, proofObj] = await buildArgs(stepsBI);
@@ -485,7 +526,17 @@ async function deployFixture() {
     await token.connect(admin).forceMonthUpdate();
   }
 
-  return { token, oracle, deployer, admin, treasury, user, apiSigner, INITIAL_SUPPLY };
+  // ✅ funder = treasury (holds initial supply via initializer argument)
+  const funder = treasury;
+
+  // Seed user with some GSTEP so tests can stake without manual transfers
+  const seed = ethers.parseEther("50000");
+  const ub = await token.balanceOf(user.address);
+  if (ub < seed) {
+    await (await token.connect(funder).transfer(user.address, seed - ub)).wait();
+  }
+
+  return { token, oracle, deployer, admin, treasury, funder, user, apiSigner, INITIAL_SUPPLY };
 }
 
 /* =============================== TESTS =============================== */
@@ -494,7 +545,7 @@ describe("Recommended Tests (robustness & regressions)", function () {
     it("distributedTotal never exceeds cap; monthly mints never exceed current cap", async function () {
       this.timeout(120000);
 
-      const { token, admin, user } = await loadFixture(deployFixture);
+      const { token, admin, user, funder } = await loadFixture(deployFixture);
       const src = "test-noproof";
       await enableSourceNoProofNoAttestation(token, admin, src);
 
@@ -508,11 +559,10 @@ describe("Recommended Tests (robustness & regressions)", function () {
       const targetSteps = safePerTx;
       const batchesThisMonth = 6n;
 
-      // seed some stake; submitSteps() will top-up if needed
-      await token.connect(user).stake({ value: targetSteps * batchesThisMonth * stakePerStep });
+      await ensureTokenStake(token, funder, user, targetSteps * batchesThisMonth * stakePerStep);
 
       async function submitBatch() {
-        const tx = await submitSteps(token, user, targetSteps, { source: src });
+        const tx = await submitSteps(token, user, targetSteps, { source: src, funder });
         await tx.wait();
         await time.increase(minIntervalSec + 1);
       }
@@ -534,7 +584,7 @@ describe("Recommended Tests (robustness & regressions)", function () {
 
   describe("Suspension flow: flaggedSubmissions persistence", function () {
     it("does NOT auto-reset flaggedSubmissions after suspension; small submission succeeds post-suspension", async function () {
-      const { token, admin, user } = await loadFixture(deployFixture);
+      const { token, admin, user, funder } = await loadFixture(deployFixture);
       const src = "anomaly-src";
 
       const { minInterval } = await getPerSourceLimits(token, src);
@@ -549,11 +599,11 @@ describe("Recommended Tests (robustness & regressions)", function () {
       const minSteps = await minStepsForReward(token);
       const warm = 100n > minSteps ? 100n : minSteps;
 
-      await token.connect(user).stake({ value: ethers.parseEther("10") });
+      await ensureTokenStake(token, funder, user, ethers.parseEther("10"));
 
       for (let i = 0; i < 5; i++) {
         await time.increase(minIntervalSec + 1);
-        const tx = await submitSteps(token, user, warm, { source: src });
+        const tx = await submitSteps(token, user, warm, { source: src, funder });
         await tx.wait();
       }
 
@@ -562,9 +612,9 @@ describe("Recommended Tests (robustness & regressions)", function () {
       const spikes = [3000n, 3000n, 3100n];
       for (const s of spikes) {
         const estPenalty = (s * stakePerStep * 30n) / 100n;
-        await token.connect(user).stake({ value: s * stakePerStep + estPenalty });
+        await ensureTokenStake(token, funder, user, s * stakePerStep + estPenalty);
         await time.increase(minIntervalSec + 2);
-        const tx = await submitSteps(token, user, s, { source: src });
+        const tx = await submitSteps(token, user, s, { source: src, funder });
         await tx.wait();
       }
 
@@ -576,7 +626,7 @@ describe("Recommended Tests (robustness & regressions)", function () {
       // If this build doesn't flag/suspend for these values, don't hard-fail.
       if (flagsAfterSpikes === 0n && until === 0n) {
         await time.increase(minIntervalSec + 2);
-        const txOk = await submitSteps(token, user, warm, { source: src });
+        const txOk = await submitSteps(token, user, warm, { source: src, funder });
         await expect(txOk).to.emit(token, "RewardClaimed");
         return;
       }
@@ -585,7 +635,7 @@ describe("Recommended Tests (robustness & regressions)", function () {
       expect(until).to.be.gt(nowT);
 
       await time.increase(minIntervalSec + 2);
-      await expect(submitSteps(token, user, warm, { source: src })).to.be.revertedWith("Account suspended");
+      await expect(submitSteps(token, user, warm, { source: src, funder })).to.be.revertedWith("Account suspended");
 
       await time.increase(suspDur + 3605);
       await time.increase(minIntervalSec + 1);
@@ -593,13 +643,24 @@ describe("Recommended Tests (robustness & regressions)", function () {
       const chainId = (await ethers.provider.getNetwork()).chainId;
       const postSteps = 200n > minSteps ? 200n : minSteps;
 
-      await token.connect(user).stake({ value: postSteps * stakePerStep });
+      await ensureTokenStake(token, funder, user, postSteps * stakePerStep);
 
       const nonceOK = await token.nonces(user.address);
       const nowOK = await time.latest();
       const deadlineOK = nowOK + 1800;
 
-      const sigOK = await signStepData(token, user.address, user.address, postSteps, nonceOK, deadlineOK, chainId, src, PAYLOAD_VER, user);
+      const sigOK = await signStepData(
+        token,
+        user.address,
+        user.address,
+        postSteps,
+        nonceOK,
+        deadlineOK,
+        chainId,
+        src,
+        PAYLOAD_VER,
+        user
+      );
 
       await expect(
         token.connect(user).logSteps(
@@ -616,7 +677,7 @@ describe("Recommended Tests (robustness & regressions)", function () {
 
   describe("Boundary fuzz: deadlines & min interval", function () {
     it("deadline boundaries (now => revert; now+valid => ok; now+valid+1 => revert)", async function () {
-      const { token, user, admin } = await loadFixture(deployFixture);
+      const { token, user, admin, funder } = await loadFixture(deployFixture);
       const SRC = "fuzz-deadline-src-2";
       await enableSourceNoProofNoAttestation(token, admin, SRC);
 
@@ -648,10 +709,10 @@ describe("Recommended Tests (robustness & regressions)", function () {
             { signature: sig, proof: [], attestation: "0x" },
           ];
         },
-        { submitter: user, withStake: true }
+        { submitter: user, withStake: true, funder }
       );
 
-      await token.connect(user).stake({ value: steps * stakePerStep });
+      await ensureTokenStake(token, funder, user, steps * stakePerStep);
 
       // deadline == now => expired
       {
@@ -700,68 +761,67 @@ describe("Recommended Tests (robustness & regressions)", function () {
         ).to.be.revertedWith("Deadline too far");
       }
     });
-it("min interval boundaries (min-1 → revert; min → ok; min+1 → ok)", async function () {
-  const { token, user, admin } = await loadFixture(deployFixture);
-  const SRC = "fuzz-interval-src-2";
-  await enableSourceNoProofNoAttestation(token, admin, SRC);
 
-  // Fresh day so remaining daily allowance is full (prevents weird caps)
-  await bumpUtcDay();
+    it("min interval boundaries (min-1 → revert; min → ok; min+1 → ok)", async function () {
+      const { token, user, admin, funder } = await loadFixture(deployFixture);
+      const SRC = "fuzz-interval-src-2";
+      await enableSourceNoProofNoAttestation(token, admin, SRC);
 
-  const { minInterval, maxStepsPerDay } = await getPerSourceLimits(token, SRC);
-  const min = BigInt(minInterval.toString());
+      // Fresh day so remaining daily allowance is full
+      await bumpUtcDay();
 
-  // If min interval is 0, there is no frequency gate to test
-  if (min === 0n) {
-    const txOk = await submitSteps(token, user, 10n, { source: SRC, withStake: true, autoBumpDayIfCapTooSmall: false });
-    await expect(txOk).to.emit(token, "RewardClaimed");
-    return;
-  }
+      const { minInterval, maxStepsPerDay } = await getPerSourceLimits(token, SRC);
+      const min = BigInt(minInterval.toString());
 
-  // Pick a steps amount that is guaranteed to be >= MIN_REWARD steps, and <= caps
-  let steps = await minStepsForReward(token);
+      if (min === 0n) {
+        const txOk = await submitSteps(token, user, 10n, { source: SRC, withStake: true, autoBumpDayIfCapTooSmall: false, funder });
+        await expect(txOk).to.emit(token, "RewardClaimed");
+        return;
+      }
 
-  const stepLimit = BigInt((await token.stepLimit()).toString());
-  const cap = stepLimit < maxStepsPerDay ? stepLimit : maxStepsPerDay;
-  if (steps > cap) steps = cap; // should never happen, but safe
+      let steps = await minStepsForReward(token);
 
-  // Fund stake generously
-  const stakePerStep = BigInt((await token.currentStakePerStep()).toString());
-  await token.connect(user).stake({ value: steps * 20n * stakePerStep });
+      const stepLimit = BigInt((await token.stepLimit()).toString());
+      const cap = stepLimit < maxStepsPerDay ? stepLimit : maxStepsPerDay;
+      if (steps > cap) steps = cap;
 
-  // First submission (baseline)
-  const tx0 = await submitSteps(token, user, steps, {
-    source: SRC,
-    withStake: true,
-    autoBumpDayIfCapTooSmall: false,
-  });
-  const rc0 = await tx0.wait();
-  const b0 = await ethers.provider.getBlock(rc0.blockNumber);
-  const t0 = BigInt(b0.timestamp);
+      const stakePerStep = BigInt((await token.currentStakePerStep()).toString());
+      await ensureTokenStake(token, funder, user, steps * 20n * stakePerStep);
 
-  // min-1 => revert
-  await time.setNextBlockTimestamp(Number(t0 + min - 1n));
-  await ethers.provider.send("evm_mine", []);
-  await expect(
-    submitSteps(token, user, steps, { source: SRC, withStake: true, autoBumpDayIfCapTooSmall: false })
-  ).to.be.revertedWith("Submission too frequent");
+      // First submission
+      const tx0 = await submitSteps(token, user, steps, {
+        source: SRC,
+        withStake: true,
+        autoBumpDayIfCapTooSmall: false,
+        funder,
+      });
+      const rc0 = await tx0.wait();
+      const b0 = await ethers.provider.getBlock(rc0.blockNumber);
+      const t0 = BigInt(b0.timestamp);
 
-  // min => ok
-  await time.setNextBlockTimestamp(Number(t0 + min));
-  await ethers.provider.send("evm_mine", []);
-  const tx1 = await submitSteps(token, user, steps, { source: SRC, withStake: true, autoBumpDayIfCapTooSmall: false });
-  await expect(tx1).to.emit(token, "RewardClaimed");
+      // min-1 => revert
+      await time.setNextBlockTimestamp(Number(t0 + min - 1n));
+      await ethers.provider.send("evm_mine", []);
+      await expect(
+        submitSteps(token, user, steps, { source: SRC, withStake: true, autoBumpDayIfCapTooSmall: false, funder })
+      ).to.be.revertedWith("Submission too frequent");
 
-  const rc1 = await tx1.wait();
-  const b1 = await ethers.provider.getBlock(rc1.blockNumber);
-  const t1 = BigInt(b1.timestamp);
+      // min => ok
+      await time.setNextBlockTimestamp(Number(t0 + min));
+      await ethers.provider.send("evm_mine", []);
+      const tx1 = await submitSteps(token, user, steps, { source: SRC, withStake: true, autoBumpDayIfCapTooSmall: false, funder });
+      await expect(tx1).to.emit(token, "RewardClaimed");
 
-  // min+1 => ok
-  await time.setNextBlockTimestamp(Number(t1 + min + 1n));
-  await ethers.provider.send("evm_mine", []);
-  const tx2 = await submitSteps(token, user, steps, { source: SRC, withStake: true, autoBumpDayIfCapTooSmall: false });
-  await expect(tx2).to.emit(token, "RewardClaimed");
-});
+      const rc1 = await tx1.wait();
+      const b1 = await ethers.provider.getBlock(rc1.blockNumber);
+      const t1 = BigInt(b1.timestamp);
+
+      // min+1 => ok
+      await time.setNextBlockTimestamp(Number(t1 + min + 1n));
+      await ethers.provider.send("evm_mine", []);
+      const tx2 = await submitSteps(token, user, steps, { source: SRC, withStake: true, autoBumpDayIfCapTooSmall: false, funder });
+      await expect(tx2).to.emit(token, "RewardClaimed");
+    });
   });
 
   describe("Trusted API path: no penalties / no suspension", function () {
@@ -810,81 +870,36 @@ it("min interval boundaries (min-1 → revert; min → ok; min+1 → ok)", async
 
   describe("Stake leakage regression (multi-submit)", function () {
     it("stake decreases only by penalties (user path); base principal unchanged when no anomalies", async function () {
-  const { token, user, admin } = await loadFixture(deployFixture);
+      const { token, user, admin, funder } = await loadFixture(deployFixture);
 
-  const src = "test-noproof";
-  await enableSourceNoProofNoAttestation(token, admin, src);
+      const src = "test-noproof";
+      await enableSourceNoProofNoAttestation(token, admin, src);
 
-  const { minInterval } = await getPerSourceLimits(token, src);
-  const minSec = Number(minInterval);
+      const { minInterval } = await getPerSourceLimits(token, src);
+      const minSec = Number(minInterval);
 
-  const stakePerStep = BigInt((await token.currentStakePerStep()).toString());
+      const stakePerStep = BigInt((await token.currentStakePerStep()).toString());
 
-  const minSteps = await minStepsForReward(token);
-  const per = 100n > minSteps ? 100n : minSteps;
+      const minSteps = await minStepsForReward(token);
+      const per = 100n > minSteps ? 100n : minSteps;
 
-  const submits = 10;
+      const submits = 10;
 
-  // Stake enough for all submits (and any harmless bumps)
-  const buffer = 5n;
-  const principal = per * BigInt(submits) * stakePerStep * buffer;
-  await token.connect(user).stake({ value: principal });
+      const buffer = 5n;
+      const principal = per * BigInt(submits) * stakePerStep * buffer;
+      await ensureTokenStake(token, funder, user, principal);
 
-  // --- Find which slot in getUserCoreStatus corresponds to stake ---
-  function toBigIntMaybe(x) {
-  try {
-    // ethers results can be bigint, number, string, boolean, etc.
-    if (typeof x === "bigint") return x;
-    if (typeof x === "number") return BigInt(x);
-    if (typeof x === "string") {
-      // reject non-numeric strings
-      if (!/^\d+$/.test(x)) return null;
-      return BigInt(x);
-    }
-    if (typeof x === "boolean") return null;
-    // ethers BigNumber-like
-    if (x && typeof x.toString === "function") {
-      const s = x.toString();
-      if (!/^\d+$/.test(s)) return null;
-      return BigInt(s);
-    }
-  } catch {}
-  return null;
-}
+      const startStake = await getUserStakeSafe(token, user.address);
+      expect(startStake).to.be.gt(0n);
 
-function findStakeIndex(coreArr, expected) {
-  let bestIdx = -1;
-  let bestDist = null;
+      for (let i = 0; i < submits; i++) {
+        const tx = await submitSteps(token, user, per, { source: src, funder });
+        await tx.wait();
+        await time.increase(minSec + 1);
+      }
 
-  for (let i = 0; i < coreArr.length; i++) {
-    const v = toBigIntMaybe(coreArr[i]);
-    if (v === null) continue; // ✅ skip booleans / non-numeric
-    const dist = v > expected ? (v - expected) : (expected - v);
-    if (bestDist === null || dist < bestDist) {
-      bestDist = dist;
-      bestIdx = i;
-    }
-  }
-
-  if (bestIdx === -1) {
-    throw new Error("Could not locate numeric stake field in getUserCoreStatus()");
-  }
-
-  return bestIdx;
-}
-
-const startStake = await getUserStakeSafe(token, user.address);
-expect(startStake).to.be.gt(0n);
-
-for (let i = 0; i < submits; i++) {
-  const tx = await submitSteps(token, user, per, { source: src });
-  await tx.wait();
-  await time.increase(minSec + 1);
-}
-
-const endStake = await getUserStakeSafe(token, user.address);
-expect(endStake).to.equal(startStake);
-});
-
+      const endStake = await getUserStakeSafe(token, user.address);
+      expect(endStake).to.equal(startStake);
+    });
   });
 });

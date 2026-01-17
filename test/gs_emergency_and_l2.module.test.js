@@ -33,6 +33,7 @@ describe("GS_EmergencyAndL2 (module) — unit", function () {
       h,
       mockArb,
     };
+    
   }
 
   it("setL1Governance: only admin, non-zero, only-once", async () => {
@@ -187,4 +188,62 @@ describe("GS_EmergencyAndL2 (module) — unit", function () {
     await expect(h.connect(admin).approveRecipient(await h.getAddress(), true))
       .to.be.revertedWith("GS: invalid recipient");
   });
+
+  
+  it("l2SetStakingPause: only aliased L1 governance can toggle stakingPaused", async () => {
+  const { admin, l1GovEOA, other, h } = await deployFixture();
+  await h.connect(admin).setL1Governance(await l1GovEOA.getAddress());
+
+  await expect(h.connect(other).l2SetStakingPause(true))
+    .to.be.revertedWith("GS: not L1 governance");
+
+  const aliased = await h.exposedAlias(await l1GovEOA.getAddress());
+  await ethers.provider.send("hardhat_impersonateAccount", [aliased]);
+  const aliasedSigner = await ethers.getSigner(aliased);
+
+  const [funder] = await ethers.getSigners();
+  await funder.sendTransaction({ to: aliased, value: ethers.parseEther("1") });
+
+  await expect(h.connect(aliasedSigner).l2SetStakingPause(true))
+    .to.emit(h, "StakingPauseSet")
+    .withArgs(true);
+
+  expect(await h.isStakingPaused()).to.equal(true);
+  expect(await h.paused()).to.equal(false); // staking pause must NOT touch OZ pause
+
+  await ethers.provider.send("hardhat_stopImpersonatingAccount", [aliased]);
+});
+
+it("emergencySetStakingPaused: only EMERGENCY_ADMIN_ROLE can toggle stakingPaused locally", async () => {
+  const { emg, other, h } = await deployFixture();
+
+  await expect(h.connect(other).emergencySetStakingPaused(true))
+    .to.be.revertedWith("ACCESS: missing role");
+
+  await expect(h.connect(emg).emergencySetStakingPaused(true))
+    .to.emit(h, "StakingPauseSet")
+    .withArgs(true);
+
+  expect(await h.isStakingPaused()).to.equal(true);
+});
+
+it("staking pause storage is shared across L1 + emergency paths", async () => {
+  const { admin, l1GovEOA, emg, h } = await deployFixture();
+  await h.connect(admin).setL1Governance(await l1GovEOA.getAddress());
+
+  const aliased = await h.exposedAlias(await l1GovEOA.getAddress());
+  await ethers.provider.send("hardhat_impersonateAccount", [aliased]);
+  const aliasedSigner = await ethers.getSigner(aliased);
+  const [funder] = await ethers.getSigners();
+  await funder.sendTransaction({ to: aliased, value: ethers.parseEther("1") });
+
+  await h.connect(aliasedSigner).l2SetStakingPause(true);
+  expect(await h.isStakingPaused()).to.equal(true);
+
+  await h.connect(emg).emergencySetStakingPaused(false);
+  expect(await h.isStakingPaused()).to.equal(false);
+
+  await ethers.provider.send("hardhat_stopImpersonatingAccount", [aliased]);
+});
+
 });
