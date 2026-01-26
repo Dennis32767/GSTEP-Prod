@@ -16,7 +16,7 @@ const TOKEN_ABI = [
   "function isSourceValid(string source) external view returns (bool)",
   "function getSourceConfig(string source) external view returns (bool requiresProof, bool requiresAttestation, bytes32 merkleRoot, uint256 maxStepsPerDay, uint256 minInterval)",
   "function getUserSourceStats(address user, string source) external view returns (uint256 lastTs, uint256 dailyTotal, uint256 dayIndex)",
-  "function getUserCoreStatus(address user) external view returns (uint256 stepAverageScaled, uint256 flaggedCount, uint256 suspendedUntilTs, uint256 stakedWei, bool apiTrusted, uint256 firstSubmissionTs)",
+  "function getUserCoreStatus(address user) external view returns (uint256 stepAverageScaled, uint256 flaggedCount, uint256 suspendedUntilTs, uint256 stakedTokens, bool apiTrusted, uint256 firstSubmissionTs)",
 
   // Versions
   "function getPayloadVersionInfo(bytes32 v) external view returns (bool supported, uint256 deprecatesAt)"
@@ -46,7 +46,7 @@ function fmtTs(ts) {
   return `${n} (${new Date(n * 1000).toISOString()})`;
 }
 
-function fmtEth(wei) {
+function fmtTokens(wei) {
   try {
     return `${ethers.formatEther(wei)} ETH (${wei.toString()} wei)`;
   } catch {
@@ -112,11 +112,11 @@ async function main() {
   console.log("");
 
   console.log("[Stake Params]");
-  console.log("currentStakePerStep      :", fmtEth(stakePerStep));
-  console.log("lastStakeAdjustment      :", fmtTs(lastAdjustTs));
+  console.log("currentStakePerStep      :", fmtTokens(stakePerStep));
+  console.log("lastStakeAdjustment      :", fmtTokens(lastAdjustTs));
   console.log("stakeParamsLocked        :", locked);
-  console.log("minStakePerStep          :", fmtEth(minStakePerStep));
-  console.log("maxStakePerStep          :", fmtEth(maxStakePerStep));
+  console.log("minStakePerStep          :", fmtTokens(minStakePerStep));
+  console.log("maxStakePerStep          :", fmtTokens(maxStakePerStep));
   console.log("stakeAdjustCooldown      :", `${adjustCooldown.toString()} sec`);
   console.log("");
 
@@ -163,14 +163,14 @@ async function main() {
   // ---- User / API status ----
   if (CHECK_USER) {
     console.log("[User Core Status]");
-    const [avgScaled, flagged, suspendUntil, stakedWei, apiTrusted, firstTs] =
+    const [avgScaled, flagged, suspendUntil, stakedTokens, apiTrusted, firstTs] =
       await token.getUserCoreStatus(CHECK_USER);
 
     console.log("user                     :", CHECK_USER);
     console.log("stepAverageScaled        :", avgScaled.toString());
     console.log("flaggedSubmissions       :", flagged.toString());
     console.log("suspendedUntil           :", fmtTs(suspendUntil));
-    console.log("stakedWei                :", fmtEth(stakedWei));
+    console.log("stakedTokens                :", fmtTokens(stakedTokens));
     console.log("apiTrusted (isTrustedAPI):", apiTrusted);
     console.log("firstSubmissionTs        :", fmtTs(firstTs));
 
@@ -190,14 +190,14 @@ async function main() {
 
   if (CHECK_API) {
     console.log("[API Signer Core Status]");
-    const [avgScaled, flagged, suspendUntil, stakedWei, apiTrusted, firstTs] =
+    const [avgScaled, flagged, suspendUntil, stakedTokens, apiTrusted, firstTs] =
       await token.getUserCoreStatus(CHECK_API);
 
     console.log("api address              :", CHECK_API);
     console.log("stepAverageScaled        :", avgScaled.toString());
     console.log("flaggedSubmissions       :", flagged.toString());
     console.log("suspendedUntil           :", fmtTs(suspendUntil));
-    console.log("stakedWei                :", fmtEth(stakedWei));
+    console.log("stakedTokens                :", fmtTokens(stakedTokens));
     console.log("apiTrusted (isTrustedAPI):", apiTrusted);
     console.log("firstSubmissionTs        :", fmtTs(firstTs));
     console.log("");

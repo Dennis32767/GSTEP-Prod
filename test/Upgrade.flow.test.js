@@ -394,63 +394,112 @@ describe("GemStepToken Upgrade Tests (Timelock → UpgradeExecutor → ProxyAdmi
 
   describe("Post-Upgrade Validation", function () {
     it("maintains storage layout and key slots", async function () {
-      const { timelock, multisig, tokenAddress, proxyAdminAddress, executor } =
-        await loadFixture(deployFixture);
+  const { timelock, multisig, tokenAddress, proxyAdminAddress, executor } =
+    await loadFixture(deployFixture);
 
-      // Snapshot key storage BEFORE upgrade (layout proof)
-      const v1 = await ethers.getContractAt("GemStepToken", tokenAddress);
-      const burnFeeBefore     = await v1.burnFee();
-      const rewardRateBefore  = await v1.rewardRate();
-      const stepLimitBefore   = await v1.stepLimit();
-      const sigValidBefore    = await v1.signatureValidityPeriod();
-      const treasuryBefore    = await v1.treasury();
-      const stakeBefore       = await v1.currentStakePerStep();
-      const supplyBefore      = await v1.totalSupply();
-      const beforeImpl        = await readImplFromSlot(tokenAddress);
-      const adminSlotBefore   = await readAdminFromSlot(tokenAddress);
+  // Snapshot key storage BEFORE upgrade (layout proof) — use bundles (burnFee etc are internal)
+  const v1 = await ethers.getContractAt("GemStepToken", tokenAddress);
 
-      const V2 = await ethers.getContractFactory("GemStepTokenV2Mock");
-      const v2Impl = await V2.deploy();
-      await v2Impl.waitForDeployment();
-      const newImpl = await v2Impl.getAddress();
+  // Core bundle: (burnFee, rewardRate, stepLimit, signatureValidityPeriod)
+  let burnFeeBefore = 0n;
+  let rewardRateBefore = 0n;
+  let stepLimitBefore = 0n;
+  let sigValidBefore = 0n;
 
-      const initCalldata = V2.interface.encodeFunctionData("initializeV2");
+  if (typeof v1.getCoreParams === "function") {
+    const core = await v1.getCoreParams();
+    burnFeeBefore     = BigInt(core[0].toString());
+    rewardRateBefore  = BigInt(core[1].toString());
+    stepLimitBefore   = BigInt(core[2].toString());
+    sigValidBefore    = BigInt(core[3].toString());
+  } else {
+    // fallback for older builds (only if still exposed)
+    rewardRateBefore  = typeof v1.rewardRate === "function" ? BigInt((await v1.rewardRate()).toString()) : 0n;
+    stepLimitBefore   = typeof v1.stepLimit === "function" ? BigInt((await v1.stepLimit()).toString()) : 0n;
+    sigValidBefore    =
+      typeof v1.signatureValidityPeriod === "function"
+        ? BigInt((await v1.signatureValidityPeriod()).toString())
+        : 0n;
+  }
 
-      const scheduleData = executor.interface.encodeFunctionData(
-        "scheduleUpgradeAndCall",
-        [proxyAdminAddress, tokenAddress, newImpl, initCalldata]
-      );
-      const executeData = executor.interface.encodeFunctionData(
-        "executeUpgradeAndCall",
-        [proxyAdminAddress, tokenAddress, newImpl, initCalldata]
-      );
+  const treasuryBefore = typeof v1.treasury === "function" ? await v1.treasury() : ethers.ZeroAddress;
 
-      await tlExecVerbose(timelock, multisig, await executor.getAddress(), scheduleData, "sched");
-      await tlExecVerbose(timelock, multisig, await executor.getAddress(), executeData, "exec");
+  // Stake bundle: (stakePerStep, lastAdjustTs, locked)
+  let stakeBefore = 0n;
+  if (typeof v1.getStakeParams === "function") {
+    const sp = await v1.getStakeParams();
+    stakeBefore = BigInt(sp[0].toString());
+  } else if (typeof v1.currentStakePerStep === "function") {
+    stakeBefore = BigInt((await v1.currentStakePerStep()).toString());
+  }
 
-      const v2 = await ethers.getContractAt("GemStepTokenV2Mock", tokenAddress);
+  const supplyBefore    = await v1.totalSupply();
+  const beforeImpl      = await readImplFromSlot(tokenAddress);
+  const adminSlotBefore = await readAdminFromSlot(tokenAddress);
 
-      // Key slot/admin slot stable for transparent proxy
-      const adminSlotAfter = await readAdminFromSlot(tokenAddress);
-      expect(adminSlotAfter.toLowerCase()).to.equal(adminSlotBefore.toLowerCase());
+  // ---- upgrade ----
+  const V2 = await ethers.getContractFactory("GemStepTokenV2Mock");
+  const v2Impl = await V2.deploy();
+  await v2Impl.waitForDeployment();
+  const newImpl = await v2Impl.getAddress();
 
-      const afterImpl = await readImplFromSlot(tokenAddress);
-      expect(afterImpl.toLowerCase()).to.equal(newImpl.toLowerCase());
-      expect(afterImpl.toLowerCase()).to.not.equal(beforeImpl.toLowerCase());
+  const initCalldata = V2.interface.encodeFunctionData("initializeV2");
 
-      // Layout preserved
-      expect(await v2.burnFee()).to.equal(burnFeeBefore);
-      expect(await v2.rewardRate()).to.equal(rewardRateBefore);
-      expect(await v2.stepLimit()).to.equal(stepLimitBefore);
-      expect(await v2.signatureValidityPeriod()).to.equal(sigValidBefore);
-      expect(await v2.treasury()).to.equal(treasuryBefore);
-      expect(await v2.currentStakePerStep()).to.equal(stakeBefore);
-      expect(await v2.totalSupply()).to.equal(supplyBefore);
+  const scheduleData = executor.interface.encodeFunctionData(
+    "scheduleUpgradeAndCall",
+    [proxyAdminAddress, tokenAddress, newImpl, initCalldata]
+  );
+  const executeData = executor.interface.encodeFunctionData(
+    "executeUpgradeAndCall",
+    [proxyAdminAddress, tokenAddress, newImpl, initCalldata]
+  );
 
-      // Cap should be MAX_SUPPLY from your storage/erc20capped
-      expect(await v2.cap()).to.equal(MAX_SUPPLY);
-      expect(await v2.newVariable()).to.equal(42);
-    });
+  await tlExecVerbose(timelock, multisig, await executor.getAddress(), scheduleData, "sched");
+  await tlExecVerbose(timelock, multisig, await executor.getAddress(), executeData, "exec");
+
+  const v2 = await ethers.getContractAt("GemStepTokenV2Mock", tokenAddress);
+
+  // Key slot/admin slot stable for transparent proxy
+  const adminSlotAfter = await readAdminFromSlot(tokenAddress);
+  expect(adminSlotAfter.toLowerCase()).to.equal(adminSlotBefore.toLowerCase());
+
+  const afterImpl = await readImplFromSlot(tokenAddress);
+  expect(afterImpl.toLowerCase()).to.equal(newImpl.toLowerCase());
+  expect(afterImpl.toLowerCase()).to.not.equal(beforeImpl.toLowerCase());
+
+  // Layout preserved — use bundles where needed
+  if (typeof v2.getCoreParams === "function") {
+    const core2 = await v2.getCoreParams();
+    expect(BigInt(core2[0].toString())).to.equal(burnFeeBefore);
+    expect(BigInt(core2[1].toString())).to.equal(rewardRateBefore);
+    expect(BigInt(core2[2].toString())).to.equal(stepLimitBefore);
+    expect(BigInt(core2[3].toString())).to.equal(sigValidBefore);
+  } else {
+    // older builds only
+    if (typeof v2.rewardRate === "function") expect(await v2.rewardRate()).to.equal(rewardRateBefore);
+    if (typeof v2.stepLimit === "function") expect(await v2.stepLimit()).to.equal(stepLimitBefore);
+    if (typeof v2.signatureValidityPeriod === "function") expect(await v2.signatureValidityPeriod()).to.equal(sigValidBefore);
+  }
+
+  expect(await v2.treasury()).to.equal(treasuryBefore);
+
+  if (typeof v2.getStakeParams === "function") {
+    const sp2 = await v2.getStakeParams();
+    expect(BigInt(sp2[0].toString())).to.equal(stakeBefore);
+  } else if (typeof v2.currentStakePerStep === "function") {
+    expect(await v2.currentStakePerStep()).to.equal(stakeBefore);
+  }
+
+  expect(await v2.totalSupply()).to.equal(supplyBefore);
+
+  // Cap should be MAX_SUPPLY (only if cap() exists in your token)
+  if (typeof v2.cap === "function") {
+    expect(await v2.cap()).to.equal(MAX_SUPPLY);
+  }
+
+  expect(await v2.newVariable()).to.equal(42);
+});
+
 
     it("emits UpgradeExecutedWithData during the upgrade", async function () {
       const { timelock, multisig, tokenAddress, proxyAdminAddress, executor } =

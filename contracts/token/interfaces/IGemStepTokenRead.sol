@@ -8,14 +8,10 @@ pragma solidity ^0.8.30;
 ///  - It exposes only *bundled* getters to keep the token bytecode small.
 ///  - GemStepViews (external helper) depends on this interface.
 ///  - Do NOT add single-field getters unless absolutely necessary.
+///  - If you add anything, prefer *bundles* to avoid selector/bytecode bloat.
 interface IGemStepTokenRead {
     /* ============================== Core Bundles ============================== */
 
-    /// @notice Core token + verification parameters (packed).
-    /// @return burnFee_ Stored burnFee (kept for layout compatibility; may be unused).
-    /// @return rewardRate_ Tokens-per-step reward rate.
-    /// @return stepLimit_ Maximum steps allowed per submission.
-    /// @return signatureValidityPeriod_ Max future deadline window.
     function getCoreParams()
         external
         view
@@ -26,19 +22,13 @@ interface IGemStepTokenRead {
             uint256 signatureValidityPeriod_
         );
 
-    /// @notice Emergency withdrawal status (packed).
-    function getEmergencyStatus()
-        external
-        view
-        returns (bool enabled, uint256 unlockTime);
+    function getEmergencyStatus() external view returns (bool enabled, uint256 unlockTime);
 
-    /// @notice Current staking parameters (packed).
     function getStakeParams()
         external
         view
         returns (uint256 stakePerStep, uint256 lastAdjustTs, bool locked);
 
-    /// @notice Minting/month/halving state (single bundle).
     function getMintingState()
         external
         view
@@ -54,7 +44,6 @@ interface IGemStepTokenRead {
 
     /* ============================== L2 / Oracle ============================== */
 
-    /// @notice Arbitrum retryable configuration PLUS oracle address (packed).
     function getArbitrumConfig()
         external
         view
@@ -69,7 +58,6 @@ interface IGemStepTokenRead {
 
     /* ============================== Sources / Users ============================== */
 
-    /// @notice Selected source configuration fields (excluding internal mapping).
     function getSourceConfigFields(string calldata source)
         external
         view
@@ -81,19 +69,13 @@ interface IGemStepTokenRead {
             uint256 minInterval
         );
 
-    /// @notice Per-(user,source) nonce used in verification schemes.
-    function getUserSourceNonce(address user, string calldata source)
-        external
-        view
-        returns (uint256);
+    function getUserSourceNonce(address user, string calldata source) external view returns (uint256 nonce);
 
-    /// @notice Per-user/per-source anti-spam stats (packed).
     function getUserSourceStats(address user, string calldata source)
         external
         view
         returns (uint256 lastTs, uint256 dailyTotal, uint256 dayIndex);
 
-    /// @notice Bundled user operational status (packed).
     function getUserCoreStatus(address user)
         external
         view
@@ -101,23 +83,17 @@ interface IGemStepTokenRead {
             uint256 stepAverageScaled,
             uint256 flaggedCount,
             uint256 suspendedUntilTs,
-            uint256 stakedWei,
+            uint256 stakedAmount,
             bool apiTrusted,
             uint256 firstSubmissionTs
         );
 
-    /// @notice Basic user reads (packed).
-    function getUserBasics(address user)
-        external
-        view
-        returns (uint256 totalSteps_, string memory lastSource_);
+    function getUserBasics(address user) external view returns (uint256 totalSteps_, string memory lastSource_);
 
-    /// @notice Trusted device flag.
     function isTrustedDevice(address device) external view returns (bool);
 
     /* ============================== Version Policy ============================== */
 
-    /// @notice Packed version policy (attestation + payload) for the same version hash key.
     function getVersionPolicy(bytes32 v)
         external
         view
@@ -128,4 +104,52 @@ interface IGemStepTokenRead {
             bool payloadSupported,
             uint256 payloadDeprecatesAt
         );
+
+    /* ============================== Guards Bundle ============================== */
+
+    function getGuardsBundle(
+        bytes32 sigHash,
+        address wallet,
+        bytes32 digest,
+        address recipient,
+        bytes32 attestKey
+    )
+        external
+        view
+        returns (
+            bool sigUsed,
+            bool erc1271Trusted,
+            bool recipientApproved,
+            bool attUsed,
+            bool digestUsed,
+            uint256 anomalyThreshold_
+        );
+
+    /* ============================== Contract Staking State ============================== */
+
+    function getContractStakingState()
+        external
+        view
+        returns (uint256 contractBal, uint256 totalStaked_, uint256 freeBal);
+
+    /* ============================== Policy Bundles ============================== */
+
+    /// @notice Returns staking discount policy constants (UI convenience).
+    /// @dev Pure bundle: compile-time constants only.
+    function getStakePolicy()
+        external
+        pure
+        returns (
+            uint256 minAge,
+            uint256 maxAge,
+            uint256 maxDiscountBps,
+            uint256 minCutBps,
+            uint256 tier1,
+            uint256 tier2,
+            uint256 tier3,
+            uint256 d1,
+            uint256 d2,
+            uint256 d3
+        );
+
 }

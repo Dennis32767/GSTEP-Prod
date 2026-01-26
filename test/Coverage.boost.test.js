@@ -304,28 +304,35 @@ describe("Coverage Boost (one-file pack)", function () {
   });
 
   describe("GS_Admin role gates & events (generic)", function () {
-    it("PARAMETER_ADMIN can set params; non-admin reverts", async function () {
-      const fx = await loadFixture(deployGemStepFixture);
-      const token = pick(fx, ["token", "gemstep", "gstep", "proxyToken"]);
-      const admin = pick(fx, ["parameterAdmin", "paramsAdmin", "admin"]);
-      if (!token || !admin) return this.skip();
+    it("PARAMETER_ADMIN (or appropriate role) can set params; non-admin reverts", async function () {
+  const fx = await loadFixture(deployGemStepFixture);
+  const token = pick(fx, ["token", "gemstep", "gstep", "proxyToken"]);
+  const admin = pick(fx, ["parameterAdmin", "paramsAdmin", "admin"]);
+  if (!token || !admin) return this.skip();
 
-      if (hasFn(token, "setRewardRate")) {
-        await expect(token.connect(admin).setRewardRate(2n)).to.not.be.reverted;
-        const rando = (await ethers.getSigners())[7];
-        await expect(token.connect(rando).setRewardRate(3n)).to.be.reverted;
-      } else if (hasFn(token, "setStepLimit")) {
-        await expect(token.connect(admin).setStepLimit(5000n)).to.not.be.reverted;
-        const rando = (await ethers.getSigners())[7];
-        await expect(token.connect(rando).setStepLimit(100n)).to.be.reverted;
-      } else if (hasFn(token, "setMonthlyMintLimit")) {
-        await expect(token.connect(admin).setMonthlyMintLimit(123_000n)).to.not.be.reverted;
-        const rando = (await ethers.getSigners())[7];
-        await expect(token.connect(rando).setMonthlyMintLimit(1n)).to.be.reverted;
-      } else {
-        return this.skip();
-      }
-    });
+  // pick a setter that exists in *your* current ABI
+  // preference order: safest + easiest to call
+  const candidates = [
+    { name: "setAnomalyThreshold", args: [2n] },
+    { name: "setTrustedAPI", args: [await asAddress(admin), true] },
+    { name: "setTrusted1271", args: [await asAddress(admin), true] },
+    { name: "setMultisig", args: [await asAddress(admin)] },
+    { name: "setPriceOracle", args: [await asAddress(admin)] }, // may revert if requires contract
+    { name: "setTreasury", args: [await asAddress(admin)] },
+    { name: "setSourceMerkleRoot", args: ["fitbit", ethers.ZeroHash] },
+  ];
+
+  const chosen = candidates.find((c) => hasFn(token, c.name));
+  if (!chosen) return this.skip();
+
+  // Admin path: should succeed (or at least not be a role failure)
+  await expect(token.connect(admin)[chosen.name](...chosen.args)).to.not.be.reverted;
+
+  // Non-admin path: should revert
+  const rando = (await ethers.getSigners())[7];
+  await expect(token.connect(rando)[chosen.name](...chosen.args)).to.be.reverted;
+});
+
 
     it("pauser can pause/unpause; others revert", async function () {
       const fx = await loadFixture(deployGemStepFixture);

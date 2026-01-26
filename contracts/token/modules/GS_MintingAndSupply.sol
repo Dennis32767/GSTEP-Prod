@@ -42,6 +42,8 @@ abstract contract GS_MintingAndSupply is GemStepCore {
     ///      - user:     mint to account
     ///      - treasury: mint to treasury
     ///      - burn:     mint to this contract then burn (net-zero supply change)
+    ///  - On month rollover, {currentMonthlyCap} is reset to {monthlyMintLimit}
+    ///    (which may be updated by halving/admin policy); unused capacity never carries forward.
     ///
     /// @param account Reward recipient (user / beneficiary).
     /// @param amount  Total “gross” reward amount before split (18 decimals).

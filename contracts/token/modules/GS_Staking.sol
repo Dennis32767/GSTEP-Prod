@@ -13,7 +13,7 @@ import "../core/GemStepCore.sol";
 ///  Storage expectations (GemStepStorage):
 ///  - mapping(address => uint256) internal stakeBalance;
 ///  - mapping(address => uint256) internal stakeStart;
-///  - bool internal stakingPaused;                  ✅ ADD THIS IN STORAGE
+///  - bool internal stakingPaused;
 ///
 ///  Policy constants are defined centrally in GemStepStorage:
 ///  - STAKE_MIN_AGE, STAKE_MAX_AGE, STAKE_TIER1/2/3, STAKE_D1/2/3, etc.
@@ -70,6 +70,10 @@ abstract contract GS_Staking is GemStepCore {
 
         stakeBalance[u] = newBal;
 
+        unchecked {
+            totalStaked += amount;
+        }
+
         _transfer(u, address(this), amount);
         emit Staked(u, amount);
     }
@@ -97,10 +101,16 @@ abstract contract GS_Staking is GemStepCore {
             stakeBalance[u] = newBal;
         }
 
+        unchecked {
+            totalStaked -= amount;
+        }
+
         if (newBal == 0) stakeStart[u] = 0;
 
         _transfer(address(this), u, amount);
         emit Withdrawn(u, amount);
+        
+        require(balanceOf(address(this)) >= totalStaked, "GS: staked invariant");
     }
 
     /* =============================================================

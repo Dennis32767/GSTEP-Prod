@@ -73,7 +73,7 @@ abstract contract GS_StepsAndVerification is GemStepCore {
     /// @param data Step submission payload.
     /// @dev Reverts with descriptive messages used by tests/clients.
     function _validateStepData(StepSubmission calldata data) internal view {
-        require(!paused(), "Contract paused");
+
         require(block.timestamp >= suspendedUntil[data.user], "Account suspended");
 
         require(data.beneficiary != address(0), "Invalid beneficiary");
@@ -165,13 +165,13 @@ abstract contract GS_StepsAndVerification is GemStepCore {
             uint256 pnonce = config.userNonce[user];
             bytes32 leaf = keccak256(abi.encode(user, data.steps, pnonce));
 
-            require(!usedLeaves[leaf], "Leaf already used");
-            usedLeaves[leaf] = true;
-
             require(
                 MerkleProof.verifyCalldata(verification.proof, config.merkleRoot, leaf),
                 "Invalid proof"
             );
+
+            require(!usedLeaves[leaf], "Leaf already used");
+            usedLeaves[leaf] = true;
 
             unchecked {
                 config.userNonce[user] = pnonce + 1;
@@ -230,73 +230,58 @@ abstract contract GS_StepsAndVerification is GemStepCore {
     }
 
     /* =============================================================
-                      ATTESTATION VALIDATION + REPLAY
-       ============================================================= */
+                  ATTESTATION VALIDATION (V2 ONLY) + REPLAY
+   ============================================================= */
 
-    /// @notice Verify a device attestation, enforce allowlist/deprecation, and apply legacy replay guard.
-    /// @param data Step submission payload.
-    /// @param attestationBlob ABI-encoded (device, timestamp, version, signature).
-    /// @dev
-    ///  - Attestation freshness window is hard-coded to 1 hour here.
-    ///  - If {attestationRequiresNonce[vHash]} is true, uses ATTESTATION_V2_TYPEHASH
-    ///    and binds to {data.nonce}.
-    ///  - If nonce-binding is not required, uses legacy replay guard keyed by (device, typedHash).
-    function _verifyAttestationAndReplay(
-        StepSubmission calldata data,
-        bytes calldata attestationBlob
-    ) internal {
-        (address device, uint256 timestamp, string memory attVersion, bytes memory sig) =
-            abi.decode(attestationBlob, (address, uint256, string, bytes));
+/// @notice Verify a device attestation (V2 only), enforce allowlist/deprecation, and bind to nonce.
+/// @param data Step submission payload.
+/// @param attestationBlob ABI-encoded (device, timestamp, versionHash, signature).
+/// @dev
+///  - This is the “expert” cleanup: drop legacy string-version path entirely.
+///  - Attestation message uses a BYTES32 versionHash (already normalized & hashed off-chain).
+///  - Always nonce-bound (prevents replay across submissions).
+///  - Replay guard is naturally enforced by `data.nonce` (and your overall tx/sig replay guards).
+///  - Freshness window is hard-coded to 1 hour (same as before).
+///
+///  Off-chain attestation must sign EIP-712 struct:
+///  Attestation(address user,uint256 steps,uint256 timestamp,bytes32 vHash,uint256 userNonce)
+///  using the SAME domain as the token’s EIP712.
+///
+function _verifyAttestationAndReplay(
+    StepSubmission calldata data,
+    bytes calldata attestationBlob
+) internal view {
+    (address device, uint256 timestamp, bytes32 versionHash, bytes memory sig) =
+        abi.decode(attestationBlob, (address, uint256, bytes32, bytes));
 
-        require(
-            bytes(attVersion).length > 0 && bytes(attVersion).length <= MAX_VERSION_LENGTH,
-            "Bad attest version"
-        );
+    // --- Freshness / time sanity ---
+    require(timestamp <= block.timestamp, "Future attestation");
+    require(block.timestamp - timestamp < 1 hours, "Stale attestation");
 
-        string memory normAtt = _normalizeVersion(attVersion);
-        bytes32 vHash = keccak256(bytes(normAtt));
-        require(supportedAttestationVersions[vHash], "Unsupported attestation version");
+    // --- Version policy ---
+    require(supportedAttestationVersions[versionHash], "Unsupported attestation version");
+    uint256 dep = attestationVersionDeprecatesAt[versionHash];
+    require(dep == 0 || block.timestamp < dep, "Attestation version deprecated");
 
-        uint256 dep = attestationVersionDeprecatesAt[vHash];
-        require(dep == 0 || block.timestamp < dep, "Attestation version deprecated");
+    // --- Device trust ---
+    require(trustedDevices[device], "Untrusted device");
 
-        require(trustedDevices[device], "Untrusted device");
-        require(block.timestamp - timestamp < 1 hours, "Stale attestation");
+    // --- EIP-712 struct hash (V2 only, nonce-bound) ---
+    bytes32 structHash = keccak256(
+        abi.encode(
+            ATTESTATION_V2_TYPEHASH,
+            data.user,
+            data.steps,
+            timestamp,
+            versionHash,
+            data.nonce
+        )
+    );
 
-        // Build struct hash once, depending on whether nonce binding is required.
-        bytes32 structHash;
-        if (attestationRequiresNonce[vHash]) {
-            structHash = keccak256(
-                abi.encode(
-                    ATTESTATION_V2_TYPEHASH,
-                    data.user,
-                    data.steps,
-                    timestamp,
-                    vHash,
-                    data.nonce
-                )
-            );
-        } else {
-            structHash = keccak256(
-                abi.encode(
-                    ATTESTATION_TYPEHASH,
-                    data.user,
-                    data.steps,
-                    timestamp,
-                    vHash
-                )
-            );
-
-            // Legacy: one-time-per-device replay guard
-            bytes32 attestHashLegacy = _hashTypedDataV4(structHash);
-            bytes32 replayKey = keccak256(abi.encodePacked(device, attestHashLegacy));
-            require(!usedAttestations[replayKey], "Attestation reused");
-            usedAttestations[replayKey] = true;
-        }
-
-        bytes32 attestHash = _hashTypedDataV4(structHash);
-        require(device == attestHash.recover(sig), "Invalid attestation");
-    }
+    // --- Final digest + signature check ---
+    bytes32 digest = _hashTypedDataV4(structHash);
+    require(device == digest.recover(sig), "Invalid attestation");
+}
 
     /* =============================================================
                                 REWARDS

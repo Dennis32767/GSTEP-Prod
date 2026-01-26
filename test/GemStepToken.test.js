@@ -23,27 +23,24 @@ describe("GemStepToken", function () {
     );
     await token.waitForDeployment();
 
-    // Ensure admin has DEFAULT_ADMIN_ROLE (initializer should do this, but keep safe)
-    const DAR = await token.DEFAULT_ADMIN_ROLE();
+  // Ensure admin has DEFAULT_ADMIN_ROLE (initializer should do this, but keep safe)
+  const DAR = await token.DEFAULT_ADMIN_ROLE();
+  if (typeof token.hasRole === "function") {
     if (!(await token.hasRole(DAR, admin.address))) {
-      await token.connect(deployer).grantRole(DAR, admin.address);
+      await (await token.connect(deployer).grantRole(DAR, admin.address)).wait();
     }
+  }
 
-    // Roles (guarded: only if the function exists in this build)
-    const maybeGrant = async (roleFn, acct) => {
-      if (typeof token[roleFn] !== "function") return;
-      const role = await token[roleFn]();
-      if (!(await token.hasRole(role, acct))) {
-        await token.connect(admin).grantRole(role, acct);
-      }
-    };
+// Grant roles using safe fallback (works even without public role getters)
+await grantRoleSafe(token, admin, "PARAMETER_ADMIN_ROLE", admin.address);
+await grantRoleSafe(token, admin, "PAUSER_ROLE", admin.address);
+await grantRoleSafe(token, admin, "MINTER_ROLE", admin.address);
+await grantRoleSafe(token, admin, "SIGNER_ROLE", apiSigner.address);
+await grantRoleSafe(token, admin, "EMERGENCY_ADMIN_ROLE", emergencyAdmin.address);
 
-    await maybeGrant("PARAMETER_ADMIN_ROLE", admin.address);
-    await maybeGrant("PAUSER_ROLE", admin.address);
-    await maybeGrant("MINTER_ROLE", admin.address);
-    await maybeGrant("SIGNER_ROLE", apiSigner.address);
-    await maybeGrant("EMERGENCY_ADMIN_ROLE", emergencyAdmin.address);
-    await maybeGrant("API_SIGNER_ROLE", apiSigner.address);
+// **CRITICAL FOR YOUR FAILURES**
+await grantRoleSafe(token, admin, "API_SIGNER_ROLE", apiSigner.address);
+
 
     // Sources (disable proof/attestation for tests)
     if (typeof token.configureSource === "function") {
@@ -95,22 +92,65 @@ describe("GemStepToken", function () {
   }
 
   async function minStepsForReward(token) {
-    const rr = BigInt((await token.rewardRate()).toString());
+  const rr = await getRewardRateSafe(token);
 
-    let minReward = 0n;
-    if (typeof token.MIN_REWARD_AMOUNT === "function") {
-      minReward = BigInt((await token.MIN_REWARD_AMOUNT()).toString());
-    } else if (typeof token.minRewardAmount === "function") {
-      minReward = BigInt((await token.minRewardAmount()).toString());
-    } else if (typeof token.getMinRewardAmount === "function") {
-      minReward = BigInt((await token.getMinRewardAmount()).toString());
-    } else {
-      minReward = 0n;
-    }
-
-    if (minReward === 0n) return 1n;
-    return (minReward + rr - 1n) / rr; // ceil
+  let minReward = 0n;
+  if (typeof token.MIN_REWARD_AMOUNT === "function") {
+    minReward = BigInt((await token.MIN_REWARD_AMOUNT()).toString());
+  } else if (typeof token.minRewardAmount === "function") {
+    minReward = BigInt((await token.minRewardAmount()).toString());
+  } else if (typeof token.getMinRewardAmount === "function") {
+    minReward = BigInt((await token.getMinRewardAmount()).toString());
+  } else {
+    minReward = 0n;
   }
+
+  if (minReward === 0n) return 1n;
+  if (rr === 0n) return 1n;
+  return (minReward + rr - 1n) / rr; // ceil
+}
+/* ------------------- Supply caps safe access (DROP-IN) ------------------- */
+async function getSupplyCapsSafe(token) {
+  // Preferred: bundled reader
+  if (typeof token.getSupplyCaps === "function") {
+    const out = await token.getSupplyCaps();
+    return {
+      maxSupply: BigInt(out[0].toString()),
+      cap: BigInt(out[1].toString()),
+      distributedTotal: BigInt(out[2].toString()),
+      currentMonthlyCap: BigInt(out[3].toString()),
+      currentMonthMinted: BigInt(out[4].toString()),
+      halvingCount: out.length > 5 ? BigInt(out[5].toString()) : 0n,
+    };
+  }
+
+  // Legacy fallbacks (only if you still have them)
+  const currentMonthMinted =
+    typeof token.currentMonthMinted === "function"
+      ? BigInt((await token.currentMonthMinted()).toString())
+      : null;
+
+  const currentMonthlyCap =
+    typeof token.currentMonthlyCap === "function"
+      ? BigInt((await token.currentMonthlyCap()).toString())
+      : null;
+
+  // Some builds expose only cap + distributed total
+  const cap =
+    typeof token.cap === "function"
+      ? BigInt((await token.cap()).toString())
+      : null;
+
+  let distributedTotal = null;
+  for (const fn of ["distributedTotal", "totalDistributed", "distributed", "mintedTotal"]) {
+    if (typeof token[fn] === "function") {
+      distributedTotal = BigInt((await token[fn]()).toString());
+      break;
+    }
+  }
+
+  return { cap, distributedTotal, currentMonthlyCap, currentMonthMinted };
+}
 
   /* ---------------------- TOKEN-STAKING helper (DROP-IN) ---------------------- */
   async function ensureTokenStake(token, funder, userSigner, requiredStake) {
@@ -184,51 +224,127 @@ describe("GemStepToken", function () {
     throw new Error("Could not bump steps above min reward within bump iterations");
   }
 
+async function getCoreParamsSafe(token) {
+  // getCoreParams(): (burnFeeBps, rewardRate, stepLimit, sigValidity)
+  if (typeof token.getCoreParams === "function") {
+    const out = await token.getCoreParams();
+    return {
+      burnFee: BigInt(out[0].toString()),
+      rewardRate: BigInt(out[1].toString()),
+      stepLimit: BigInt(out[2].toString()),
+      sigValidity: BigInt(out[3].toString()),
+    };
+  }
+
+  // legacy fallback if you ever re-add these
+  const rewardRate =
+    typeof token.rewardRate === "function" ? BigInt((await token.rewardRate()).toString()) : 0n;
+  const stepLimit =
+    typeof token.stepLimit === "function" ? BigInt((await token.stepLimit()).toString()) : 0n;
+  const sigValidity =
+    typeof token.signatureValidityPeriod === "function"
+      ? BigInt((await token.signatureValidityPeriod()).toString())
+      : 3600n;
+
+  return { burnFee: 0n, rewardRate, stepLimit, sigValidity };
+}
+
+async function getRewardRateSafe(token) {
+  const { rewardRate } = await getCoreParamsSafe(token);
+  return rewardRate;
+}
+
+async function getSigValiditySafe(token) {
+  const { sigValidity } = await getCoreParamsSafe(token);
+  return sigValidity;
+}
+
+// Role id resolution:
+// - if contract exposes e.g. PAUSER_ROLE() use it
+// - else fall back to keccak256("PAUSER_ROLE") (matches your Storage docs/tests tooling)
+async function roleId(token, roleName) {
+  if (typeof token[roleName] === "function") return token[roleName]();
+  return ethers.keccak256(ethers.toUtf8Bytes(roleName));
+}
+
+async function grantRoleSafe(token, adminSigner, roleName, account) {
+  const r = await roleId(token, roleName);
+  if (typeof token.hasRole === "function") {
+    const has = await token.hasRole(r, account);
+    if (has) return r;
+  }
+  await (await token.connect(adminSigner).grantRole(r, account)).wait();
+  return r;
+}
+
+/**
+ * Robustly read domain from OZ EIP-5267 if available, else use constants.
+ */
+async function getEip712DomainSafe(token) {
+  const { chainId } = await ethers.provider.getNetwork();
+
+  if (typeof token.eip712Domain === "function") {
+    const d = await token.eip712Domain();
+    return {
+      name: d[1],
+      version: d[2],
+      chainId: Number(d[3] || chainId),
+      verifyingContract: d[4] && d[4] !== ethers.ZeroAddress ? d[4] : await token.getAddress(),
+    };
+  }
+
+  return {
+    name: "GemStep",
+    version: "1.0.0",
+    chainId: Number(chainId),
+    verifyingContract: await token.getAddress(),
+  };
+}
+
   // Typed-data signing helper for StepLog
   async function signStepLog(contract, signer, params) {
-    const { chainId } = await ethers.provider.getNetwork();
-    const domain = {
-      name: "GemStep",
-      version: "1.0.0",
-      chainId,
-      verifyingContract: await contract.getAddress(),
-    };
+  const domainLive = await getEip712DomainSafe(contract);
 
-    const types = {
-      StepLog: [
-        { name: "user", type: "address" },
-        { name: "beneficiary", type: "address" },
-        { name: "steps", type: "uint256" },
-        { name: "nonce", type: "uint256" },
-        { name: "deadline", type: "uint256" },
-        { name: "chainId", type: "uint256" },
-        { name: "source", type: "string" },
-        { name: "version", type: "string" },
-      ],
-    };
+  const domain = {
+    name: domainLive.name,
+    version: domainLive.version,
+    chainId: Number(domainLive.chainId),
+    verifyingContract: domainLive.verifyingContract,
+  };
 
-    const value = {
-      user: params.user,
-      beneficiary: params.beneficiary,
-      steps: params.steps,
-      nonce: params.nonce,
-      deadline: params.deadline,
-      chainId,
-      source: params.source,
-      version: params.version,
-    };
+  const types = {
+    StepLog: [
+      { name: "user", type: "address" },
+      { name: "beneficiary", type: "address" },
+      { name: "steps", type: "uint256" },
+      { name: "nonce", type: "uint256" },
+      { name: "deadline", type: "uint256" },
+      { name: "chainId", type: "uint256" },
+      { name: "source", type: "string" },
+      { name: "version", type: "string" },
+    ],
+  };
 
-    const signature = await signer.signTypedData(domain, types, value);
+  const value = {
+    user: params.user,
+    beneficiary: params.beneficiary,
+    steps: params.steps,
+    nonce: params.nonce,
+    deadline: params.deadline,
+    chainId: Number(domain.chainId),
+    source: params.source,
+    version: params.version,
+  };
 
-    const recovered = ethers.verifyTypedData(domain, types, value, signature);
-    if (recovered.toLowerCase() !== (await signer.getAddress()).toLowerCase()) {
-      throw new Error(
-        `TypedData mismatch: recovered ${recovered} vs signer ${(await signer.getAddress())}`
-      );
-    }
+  const signature = await signer.signTypedData(domain, types, value);
 
-    return signature;
+  const recovered = ethers.verifyTypedData(domain, types, value, signature);
+  if (recovered.toLowerCase() !== (await signer.getAddress()).toLowerCase()) {
+    throw new Error(`TypedData mismatch: recovered ${recovered} vs signer ${(await signer.getAddress())}`);
   }
+
+  return signature;
+}
 
   describe("Basic Functionality", function () {
     it("Should initialize correctly", async function () {
@@ -274,7 +390,12 @@ describe("GemStepToken", function () {
 
       const buildArgs = async (stepsBI) => {
         const nonce = await token.nonces(user1.address);
-        const deadline = (await time.latest()) + 3600;
+        const now = await time.latest();
+        let sigV = Number(await getSigValiditySafe(token));
+        if (!Number.isFinite(sigV) || sigV <= 0) sigV = 3600;
+        // keep comfortably inside the limit to avoid "Deadline too far"
+        const deadline = now + Math.max(60, Math.min(300, sigV - 5));
+
 
         const signature = await signStepLog(token, apiSigner, {
           user: user1.address,
@@ -308,12 +429,15 @@ describe("GemStepToken", function () {
         startSteps: steps,
       });
 
-      const rewardRate = BigInt((await token.rewardRate()).toString());
+      const rewardRate = await getRewardRateSafe(token);
       const upperBound = steps * rewardRate;
 
-      const currentMonthMinted = await token.currentMonthMinted();
-      const currentCap = await token.currentMonthlyCap();
-      if (currentMonthMinted + upperBound > currentCap) return;
+      const caps = await getSupplyCapsSafe(token);
+
+      // If month accounting isn’t exposed, skip this guard (test still validates RewardClaimed + balance delta)
+      if (caps.currentMonthMinted != null && caps.currentMonthlyCap != null) {
+        if (caps.currentMonthMinted + upperBound > caps.currentMonthlyCap) return;
+      }
 
       const { payload, proofObj } = await buildArgs(steps);
 
@@ -340,7 +464,12 @@ describe("GemStepToken", function () {
 
       const buildArgs = async (stepsBI) => {
         const nonce = await token.nonces(user1.address);
-        const deadline = (await time.latest()) + 3600;
+        const now = await time.latest();
+        let sigV = Number(await getSigValiditySafe(token));
+        if (!Number.isFinite(sigV) || sigV <= 0) sigV = 3600;
+        // keep comfortably inside the limit to avoid "Deadline too far"
+        const deadline = now + Math.max(60, Math.min(300, sigV - 5));
+
 
         const signature = await signStepLog(token, user1, {
           user: user1.address,
@@ -374,12 +503,15 @@ describe("GemStepToken", function () {
         startSteps: steps,
       });
 
-      const rewardRate = BigInt((await token.rewardRate()).toString());
+      const rewardRate = await getRewardRateSafe(token);
       const upperBound = steps * rewardRate;
 
-      const currentMonthMinted = await token.currentMonthMinted();
-      const currentCap = await token.currentMonthlyCap();
-      if (currentMonthMinted + upperBound > currentCap) return;
+      const caps = await getSupplyCapsSafe(token);
+
+      // If month accounting isn’t exposed, skip this guard (test still validates RewardClaimed + balance delta)
+      if (caps.currentMonthMinted != null && caps.currentMonthlyCap != null) {
+        if (caps.currentMonthMinted + upperBound > caps.currentMonthlyCap) return;
+      }
 
       const { payload, proofObj } = await buildArgs(steps);
 
@@ -399,7 +531,12 @@ describe("GemStepToken", function () {
 
       const buildArgsApi = async (stepsBI, nonceOverride = null) => {
         const nonce = nonceOverride ?? (await token.nonces(user1.address));
-        const deadline = (await time.latest()) + 3600;
+        const now = await time.latest();
+        let sigV = Number(await getSigValiditySafe(token));
+        if (!Number.isFinite(sigV) || sigV <= 0) sigV = 3600;
+        // keep comfortably inside the limit to avoid "Deadline too far"
+        const deadline = now + Math.max(60, Math.min(300, sigV - 5));
+
 
         const apiSig = await signStepLog(token, apiSigner, {
           user: user1.address,
@@ -501,16 +638,26 @@ describe("GemStepToken", function () {
     it("Should allow admin to grant roles", async function () {
       const { token, admin, user1 } = await loadFixture(deployFixture);
 
-      await token.connect(admin).grantRole(await token.PAUSER_ROLE(), user1.address);
-      expect(await token.hasRole(await token.PAUSER_ROLE(), user1.address)).to.be.true;
+    const PR = await roleId(token, "PAUSER_ROLE");
+    await token.connect(admin).grantRole(PR, user1.address);
+    expect(await token.hasRole(PR, user1.address)).to.be.true;
+
     });
 
     it("Should prevent non-admins from granting roles", async function () {
-      const { token, user1, user2 } = await loadFixture(deployFixture);
+  const { token, admin, user1, user2 } = await loadFixture(deployFixture);
 
-      await expect(
-        token.connect(user1).grantRole(await token.PAUSER_ROLE(), user2.address)
-      ).to.be.revertedWithCustomError(token, "AccessControlUnauthorizedAccount");
-    });
+  const PR = await roleId(token, "PAUSER_ROLE");
+
+  // user1 is NOT admin, so this must fail
+  await expect(
+    token.connect(user1).grantRole(PR, user2.address)
+  ).to.be.revertedWithCustomError(token, "AccessControlUnauthorizedAccount");
+
+  // sanity: admin can grant it
+  await (await token.connect(admin).grantRole(PR, user2.address)).wait();
+  expect(await token.hasRole(PR, user2.address)).to.be.true;
+});
+
   });
 });

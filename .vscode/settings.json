@@ -1,10 +1,10 @@
 {
-  "solidity.defaultCompiler": "remote",
-  "solidity.compileUsingRemoteVersion": "v0.8.30+commit.73712a01",
+  "solidity.compileUsingRemoteVersion": "latest",
 
   "solidity.packageDefaultDependenciesDirectory": "node_modules",
   "solidity.packageDefaultDependenciesContractsDirectory": "contracts",
   "solidity.remappingsWindows": [
     "@openzeppelin/=node_modules/@openzeppelin/"
-  ]
+  ],
+  "solidity.defaultCompiler": "remote"
 }

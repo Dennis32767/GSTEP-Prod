@@ -75,7 +75,7 @@ const YUL = IS_COVERAGE ? false : RAW_YUL;
 const EFFECTIVE_YUL = USE_IR ? true : YUL;
 
 const YUL_STEPS = process.env.YUL_STEPS || "";
-const EVM_VERSION = (process.env.EVM_VERSION || "shanghai").toLowerCase();
+const EVM_VERSION = (process.env.EVM_VERSION || "osaka").toLowerCase();
 
 const PRINT_BUILD = envBool(process.env.PRINT_BUILD, false);
 

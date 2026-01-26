@@ -11,6 +11,8 @@ import "../interfaces/IGemStepTokenRead.sol";
 ///  - Put all computed / convenience reads here (halving thresholds, estimates, packing).
 ///  - This contract is read-only and holds no privileges.
 ///  - Deploy 1x per token address and point your UI to this helper.
+///  - GemStepViews reads token-exposed bundles and exposes derived read-only helpers.
+///  - Post-launch parameter changes do not require view updates unless the semantic meaning or aggregation logic changes.
 ///
 contract GemStepViews {
     /// @notice The token instance this view helper reads from.
@@ -18,7 +20,7 @@ contract GemStepViews {
 
     /* ========================= Constants mirrored for UI =========================
        @dev These are duplicated here (not in the token) to avoid increasing token bytecode.
-            Keep these aligned with GemStepStorage constants.
+            Keep these aligned with GemStepStorage constants for *this deployment*.
     */
 
     /// @dev Must match GemStepStorage.DECIMALS
@@ -61,12 +63,12 @@ contract GemStepViews {
     uint256 internal constant MIN_BURN_AMOUNT = 1 * 10 ** DECIMALS;
 
     /// @dev Must match GemStepStorage.ANOMALY_THRESHOLD
-    uint256 internal constant ANOMALY_THRESHOLD = 5;
+    uint256 internal constant ANOMALY_THRESHOLD = 3;
 
-    /// @dev Must match GemStepStorage.MIN_AVERAGE_FOR_ANOMALY
+    /// @dev Must match GemStepStorage.MIN_AVERAGE_FOR_ANOMALY (legacy/unused policy anchor)
     uint256 internal constant MIN_AVERAGE_FOR_ANOMALY = 500;
 
-    /// @dev Must match GemStepStorage.GRACE_PERIOD
+    /// @dev Must match GemStepStorage.GRACE_PERIOD (legacy/unused policy anchor)
     uint256 internal constant GRACE_PERIOD = 7 days;
 
     /// @dev Must match GemStepStorage.MAX_PROOF_LENGTH
@@ -75,16 +77,51 @@ contract GemStepViews {
     /// @dev Must match GemStepStorage.MAX_VERSION_LENGTH
     uint256 internal constant MAX_VERSION_LENGTH = 32;
 
-    /// @dev Must match GemStepStorage.TARGET_STAKE_PERCENT
+    /// @dev Must match GemStepStorage.TARGET_STAKE_PERCENT (legacy/unused policy anchor)
     uint256 internal constant TARGET_STAKE_PERCENT = 10;
 
     /// @dev Must match GemStepStorage.MONTHLY_MINT_LIMIT
     uint256 internal constant MONTHLY_MINT_LIMIT = 2_000_000 * 10 ** DECIMALS;
 
     /// @dev Must match GemStepStorage.MIN_STAKE_PER_STEP / MAX_STAKE_PER_STEP / STAKE_ADJUST_COOLDOWN
-    uint256 internal constant MIN_STAKE_PER_STEP = 0.0000001 ether;
-    uint256 internal constant MAX_STAKE_PER_STEP = 0.001 ether;
+    /// @dev IMPORTANT: these are GSTEP token units (token-wei, 1e18), NOT ETH/wei.
+    uint256 internal constant MIN_STAKE_PER_STEP = 1e16; // 0.01 GSTEP/step
+    uint256 internal constant MAX_STAKE_PER_STEP = 5e16; // 0.05 GSTEP/step
     uint256 internal constant STAKE_ADJUST_COOLDOWN = 1 days;
+
+    /* ========================= STAKING / SPLIT POLICY CONSTANTS =========================
+       @dev Mirrored from GemStepStorage. UI convenience only (PURE reads).
+    */
+
+    /// @dev Must match GemStepStorage.STAKE_MIN_AGE
+    uint256 internal constant STAKE_MIN_AGE = 7 days;
+
+    /// @dev Must match GemStepStorage.STAKE_MAX_AGE
+    uint256 internal constant STAKE_MAX_AGE = 180 days;
+
+    /// @dev Must match GemStepStorage.STAKE_MAX_CUT_DISCOUNT_BPS
+    uint256 internal constant STAKE_MAX_CUT_DISCOUNT_BPS = 1_200;
+
+    /// @dev Must match GemStepStorage.STAKE_MIN_CUT_BPS
+    uint256 internal constant STAKE_MIN_CUT_BPS = 800;
+
+    /// @dev Must match GemStepStorage.STAKE_TIER1
+    uint256 internal constant STAKE_TIER1 = 10_000 * 1e18;
+
+    /// @dev Must match GemStepStorage.STAKE_TIER2
+    uint256 internal constant STAKE_TIER2 = 50_000 * 1e18;
+
+    /// @dev Must match GemStepStorage.STAKE_TIER3
+    uint256 internal constant STAKE_TIER3 = 200_000 * 1e18;
+
+    /// @dev Must match GemStepStorage.STAKE_D1
+    uint256 internal constant STAKE_D1 = 200; // 2.00%
+
+    /// @dev Must match GemStepStorage.STAKE_D2
+    uint256 internal constant STAKE_D2 = 500; // 5.00%
+
+    /// @dev Must match GemStepStorage.STAKE_D3
+    uint256 internal constant STAKE_D3 = 900; // 9.00%
 
     /// @notice Create a new read helper pointed at an already-deployed token.
     /// @param token_ Deployed GemStepToken proxy address.
@@ -95,25 +132,12 @@ contract GemStepViews {
 
     /*────────────────────────────── HALVING / MONTH ─────────────────────────────*/
 
-    /// @notice Get current halving index and next halving threshold information.
-    /// @return currentHalvingCount The current halving counter.
-    /// @return nextHalvingThreshold The distributedTotal threshold that triggers the next halving.
-    /// @return remainingUntilHalving Remaining distributedTotal required to reach the next threshold (0 if already met).
-    /// @dev threshold = MAX_SUPPLY - (MAX_SUPPLY >> (halvingCount + 1))
     function getHalvingInfo()
         external
         view
         returns (uint256 currentHalvingCount, uint256 nextHalvingThreshold, uint256 remainingUntilHalving)
     {
-        (
-            ,
-            ,
-            ,
-            ,
-            uint256 distributedTotal_,
-            ,
-            uint256 halvingIdx
-        ) = token.getMintingState();
+        (, , , , uint256 distributedTotal_, , uint256 halvingIdx) = token.getMintingState();
 
         uint256 t = MAX_SUPPLY - (MAX_SUPPLY >> (halvingIdx + 1));
 
@@ -122,14 +146,6 @@ contract GemStepViews {
         remainingUntilHalving = t > distributedTotal_ ? t - distributedTotal_ : 0;
     }
 
-    /// @notice Get current month accounting for monthly mint cap logic (straight passthrough bundle).
-    /// @return month Current month index (block.timestamp / SECONDS_PER_MONTH).
-    /// @return minted Amount minted (net) this month.
-    /// @return limit Base monthly mint limit (policy).
-    /// @return timestamp Last month update timestamp.
-    /// @return distributedTotal_ Lifetime distributed total.
-    /// @return currentMonthlyCap_ Current monthly cap (post-halving policy).
-    /// @return halvingIdx Current halving counter.
     function getMonthInfo()
         external
         view
@@ -148,9 +164,6 @@ contract GemStepViews {
 
     /*────────────────────────────── REWARD / ESTIMATES ──────────────────────────*/
 
-    /// @notice Estimate beneficiary reward for a step count (beneficiary/user portion only).
-    /// @param steps Step count.
-    /// @return amount Estimated amount minted to the beneficiary (user portion).
     function estimateReward(uint256 steps) external view returns (uint256 amount) {
         if (steps < MIN_STEPS) return 0;
         (, uint256 rewardRate_, , ) = token.getCoreParams();
@@ -160,16 +173,20 @@ contract GemStepViews {
 
     /*────────────────────────────── SOURCES / USERS ─────────────────────────────*/
 
-    /// @notice Get source configuration fields (excluding mapping fields inside SourceConfig).
     function getSourceConfig(string calldata source)
         external
         view
-        returns (bool requiresProof, bool requiresAttestation, bytes32 merkleRoot, uint256 maxStepsPerDay, uint256 minInterval)
+        returns (
+            bool requiresProof,
+            bool requiresAttestation,
+            bytes32 merkleRoot,
+            uint256 maxStepsPerDay,
+            uint256 minInterval
+        )
     {
         return token.getSourceConfigFields(source);
     }
 
-    /// @notice Get per-user/per-source rolling anti-spam stats.
     function getUserSourceStats(address user, string calldata source)
         external
         view
@@ -178,12 +195,10 @@ contract GemStepViews {
         return token.getUserSourceStats(user, source);
     }
 
-    /// @notice Get per-(user,source) nonce used in verification schemes.
     function getUserSourceNonce(address user, string calldata source) external view returns (uint256) {
         return token.getUserSourceNonce(user, source);
     }
 
-    /// @notice Get core user operational status (bundled).
     function getUserCoreStatus(address user)
         external
         view
@@ -191,7 +206,7 @@ contract GemStepViews {
             uint256 stepAverageScaled,
             uint256 flaggedCount,
             uint256 suspendedUntilTs,
-            uint256 stakedWei,
+            uint256 stakedAmount,
             bool apiTrusted,
             uint256 firstSubmissionTs
         )
@@ -199,20 +214,16 @@ contract GemStepViews {
         return token.getUserCoreStatus(user);
     }
 
-    /// @notice Basic user reads (packed).
     function getUserBasics(address user) external view returns (uint256 totalSteps_, string memory lastSource_) {
         return token.getUserBasics(user);
     }
 
-    /// @notice Returns whether a device is trusted for attestations.
     function isTrustedDevice(address device) external view returns (bool) {
         return token.isTrustedDevice(device);
     }
 
     /*────────────────────────────── VERSIONS ────────────────────────────────────*/
 
-    /// @notice Returns attestation version policy information.
-    /// @param v Version hash (normalized string hash) used by the token.
     function getAttestationVersionInfo(bytes32 v)
         external
         view
@@ -221,41 +232,22 @@ contract GemStepViews {
         (supported, deprecatesAt, requiresNonce, , ) = token.getVersionPolicy(v);
     }
 
-    /// @notice Returns payload version policy information.
-    /// @param v Version hash (normalized string hash) used by the token.
-    function getPayloadVersionInfo(bytes32 v)
-        external
-        view
-        returns (bool supported, uint256 deprecatesAt)
-    {
+    function getPayloadVersionInfo(bytes32 v) external view returns (bool supported, uint256 deprecatesAt) {
         (, , , supported, deprecatesAt) = token.getVersionPolicy(v);
     }
 
     /*────────────────────────────── L2 / ARBITRUM ───────────────────────────────*/
 
-    /// @notice Returns Arbitrum retryable configuration (passthrough).
     function getArbitrumConfig()
         external
         view
-        returns (
-            address inbox,
-            address l1Validator_,
-            uint256 maxGas,
-            uint256 gasPriceBid,
-            uint256 maxSubmissionCost
-        )
+        returns (address inbox, address l1Validator_, uint256 maxGas, uint256 gasPriceBid, uint256 maxSubmissionCost)
     {
         (inbox, l1Validator_, maxGas, gasPriceBid, maxSubmissionCost, ) = token.getArbitrumConfig();
     }
 
-    /// @notice Returns the configured price oracle address (passthrough).
-    function getPriceOracle() external view returns (address oracle) {
-        ( , , , , , oracle) = token.getArbitrumConfig();
-    }
-
     /*────────────────────────────── CORE (PASSTHROUGH) ──────────────────────────*/
 
-    /// @notice Returns core token and verification parameters (passthrough).
     function getCoreParams()
         external
         view
@@ -264,17 +256,14 @@ contract GemStepViews {
         return token.getCoreParams();
     }
 
-    /// @notice Returns emergency withdrawal status (passthrough).
     function getEmergencyStatus() external view returns (bool enabled, uint256 unlockTime) {
         return token.getEmergencyStatus();
     }
 
-    /// @notice Returns staking parameters (passthrough).
     function getStakeParams() external view returns (uint256 stakePerStep, uint256 lastAdjustTs, bool locked) {
         return token.getStakeParams();
     }
 
-    /// @notice Returns immutable stake constants (UI convenience).
     function getStakeConstants()
         external
         pure
@@ -283,23 +272,56 @@ contract GemStepViews {
         return (MIN_STAKE_PER_STEP, MAX_STAKE_PER_STEP, STAKE_ADJUST_COOLDOWN);
     }
 
+        /* ============================== Policy Bundles ============================== */
+
+    /// @notice Returns staking discount policy constants (UI convenience).
+    /// @dev Calls the token’s bundled read. Requires IGemStepTokenRead to include getStakePolicy().
+    function getStakePolicy()
+        external
+        view
+        returns (
+            uint256 minAge,
+            uint256 maxAge,
+            uint256 maxDiscountBps,
+            uint256 minCutBps,
+            uint256 tier1,
+            uint256 tier2,
+            uint256 tier3,
+            uint256 d1,
+            uint256 d2,
+            uint256 d3
+        )
+    {
+        return token.getStakePolicy();
+    }
+
+    /*────────────────────────────── STAKING (CONTRACT-LEVEL) ────────────────────*/
+
+    /// @notice Returns contract-level staking totals used for emergency-withdraw safety.
+    /// @dev Views cannot read token internal storage (e.g., totalStaked) directly, so this uses the token bundle.
+    function getContractStakingState()
+        external
+        view
+        returns (uint256 contractBal, uint256 totalStaked_, uint256 freeBal)
+    {
+        return token.getContractStakingState();
+    }
+
     /*────────────────────────────── CONSTANTS (PACKED) ──────────────────────────*/
 
-    /// @notice Returns UI constants in a single packed array to reduce RPC round trips.
-    /// @dev Pure function: values are compile-time constants.
     function getPublicConstantsPacked() external pure returns (uint256[16] memory out) {
-        out[0]  = INITIAL_SUPPLY;
-        out[1]  = REWARD_RATE_BASE;
-        out[2]  = SECONDS_PER_MONTH;
-        out[3]  = MAX_REWARD_RATE;
-        out[4]  = PERCENTAGE_BASE;
+        out[0] = INITIAL_SUPPLY;
+        out[1] = REWARD_RATE_BASE;
+        out[2] = SECONDS_PER_MONTH;
+        out[3] = MAX_REWARD_RATE;
+        out[4] = PERCENTAGE_BASE;
 
-        out[5]  = DEFAULT_SIGNATURE_VALIDITY;
-        out[6]  = MAX_SIGNATURE_VALIDITY;
-        out[7]  = MIN_BURN_AMOUNT;
-        out[8]  = MIN_STEPS;
+        out[5] = DEFAULT_SIGNATURE_VALIDITY;
+        out[6] = MAX_SIGNATURE_VALIDITY;
+        out[7] = MIN_BURN_AMOUNT;
+        out[8] = MIN_STEPS;
 
-        out[9]  = ANOMALY_THRESHOLD;
+        out[9] = ANOMALY_THRESHOLD;
         out[10] = MIN_AVERAGE_FOR_ANOMALY;
         out[11] = GRACE_PERIOD;
         out[12] = MAX_PROOF_LENGTH;

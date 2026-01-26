@@ -22,43 +22,40 @@ abstract contract GemStepStorage {
        ============================================================= */
 
     /// @notice Role allowing pause/unpause.
-    /// @dev Tests/tooling often read these directly, so keep them public.
-    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
+    /// @dev Tests/tooling should use the same keccak256 literals or read via the external views helper
+    bytes32 internal constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
     /// @notice Role allowing privileged mint operations (where exposed).
-    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+    bytes32 internal constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
     /// @notice Role for off-chain signature authorizers (general).
-    bytes32 public constant SIGNER_ROLE = keccak256("SIGNER_ROLE");
+    bytes32 internal constant SIGNER_ROLE = keccak256("SIGNER_ROLE");
 
     /// @notice Role for updating parameters and allowlists.
-    bytes32 public constant PARAMETER_ADMIN_ROLE = keccak256("PARAMETER_ADMIN_ROLE");
+    bytes32 internal constant PARAMETER_ADMIN_ROLE = keccak256("PARAMETER_ADMIN_ROLE");
 
     /// @notice Role for emergency controls (withdrawals, overrides).
-    bytes32 public constant EMERGENCY_ADMIN_ROLE = keccak256("EMERGENCY_ADMIN");
+    bytes32 internal constant EMERGENCY_ADMIN_ROLE = keccak256("EMERGENCY_ADMIN_ROLE");
 
     /// @notice Role for upgrade authorization (proxy admin / upgrade executor).
-    bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
+    bytes32 internal constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
 
     /// @notice Role for API-side signing keys used by trusted relayers.
-    bytes32 public constant API_SIGNER_ROLE = keccak256("API_SIGNER_ROLE");
+    bytes32 internal constant API_SIGNER_ROLE = keccak256("API_SIGNER_ROLE");
 
     /* =============================================================
-                               EIP-712 TYPEHASHES
-       ============================================================= */
+                        EIP-712 TYPEHASHES
+    ============================================================= */
 
     /// @dev EIP-712 StepLog typehash.
     bytes32 internal constant STEPLOG_TYPEHASH = keccak256(
         "StepLog(address user,address beneficiary,uint256 steps,uint256 nonce,uint256 deadline,uint256 chainId,string source,string version)"
     );
 
-    /// @dev Legacy attestation typehash (no nonce-binding).
-    bytes32 internal constant ATTESTATION_TYPEHASH =
-        keccak256("Attestation(address user,uint256 steps,uint256 timestamp,string version)");
-
-    /// @dev Nonce-bound attestation typehash (v2).
-    bytes32 internal constant ATTESTATION_V2_TYPEHASH =
-        keccak256("Attestation(address user,uint256 steps,uint256 timestamp,bytes32 vHash,uint256 userNonce)");
+    /// @dev Nonce-bound attestation typehash (V2 only; bytes32 versionHash).
+    bytes32 internal constant ATTESTATION_V2_TYPEHASH = keccak256(
+        "AttestationV2(address user,uint256 steps,uint256 timestamp,bytes32 versionHash,uint256 userNonce)"
+    );
 
     /* =============================================================
                      DOMAIN / PAYLOAD VERSION CONSTANTS
@@ -114,7 +111,7 @@ abstract contract GemStepStorage {
     uint256 internal constant MAX_SOURCE_LENGTH = 20;
 
     /// @notice Delay applied when enabling emergency withdrawals.
-    uint256 public constant EMERGENCY_DELAY = 2 days;
+    uint256 internal constant EMERGENCY_DELAY = 2 days;
 
     /// @dev Minimum burn amount (generic minimum). Kept as policy anchor.
     uint256 internal constant MIN_BURN_AMOUNT = 1 * 10 ** DECIMALS;
@@ -123,7 +120,7 @@ abstract contract GemStepStorage {
     uint256 internal constant MIN_STEPS = 1;
 
     /// @notice Base monthly mint cap (policy). Current cap may change with halving schedule.
-    uint256 public constant MONTHLY_MINT_LIMIT = 2_000_000 * 10 ** DECIMALS;
+    uint256 internal constant MONTHLY_MINT_LIMIT = 2_000_000 * 10 ** DECIMALS;
 
     /// @dev Batch bounds.
     uint256 internal constant MAX_BATCH_SIGNERS = 20;
@@ -131,45 +128,60 @@ abstract contract GemStepStorage {
     uint256 internal constant MAX_BATCH_SOURCES = 10;
 
     /// @notice Month length used for cap rollover (fixed 30 days).
-    uint256 public constant SECONDS_PER_MONTH = 30 days;
+    uint256 internal constant SECONDS_PER_MONTH = 30 days;
 
-    /// @notice Anomaly penalty percentage (0-100).
-    uint256 public constant PENALTY_PERCENT = 30;
+    /// @dev Legacy anomaly/suspension state retained for layout compatibility (currently unused).
+    uint256 internal constant PENALTY_PERCENT = 30;
 
     /// @notice Maximum steps per day (per-source default).
-    uint256 public constant MAX_STEPS_PER_DAY = 10_000;
+    uint256 internal constant MAX_STEPS_PER_DAY = 10_000;
 
     /// @notice Minimum submission interval (per-source default).
-    uint256 public constant MIN_SUBMISSION_INTERVAL = 1 hours;
+    uint256 internal constant MIN_SUBMISSION_INTERVAL = 1 hours;
 
-    /// @notice Suspension duration after repeated anomaly flags.
-    uint256 public constant SUSPENSION_DURATION = 30 days;
+    /// @dev Legacy anomaly/suspension state retained for layout compatibility (currently unused).
+    uint256 internal constant SUSPENSION_DURATION = 30 days;
 
-    /// @notice Default anomaly threshold multiplier (e.g. 5 => 5x average).
-    uint256 public constant ANOMALY_THRESHOLD = 5;
+    /// @notice Onboarding cap: number of successful non-API submissions allowed per user.
+    uint256 internal constant ANOMALY_THRESHOLD = 3;
 
-    /// @dev Minimum average (scaled) required before anomaly checks apply.
+    /// @dev Legacy anomaly/suspension state retained for layout compatibility (currently unused).
     uint256 internal constant MIN_AVERAGE_FOR_ANOMALY = 500;
 
-    /// @notice Grace period for new users before anomaly checks apply.
-    uint256 public constant GRACE_PERIOD = 7 days;
+    /// @dev Legacy anomaly/suspension state retained for layout compatibility (currently unused).
+    uint256 internal constant GRACE_PERIOD = 7 days;
 
     /// @dev Upper bounds for calldata sizes (defensive; protects gas / DoS).
     uint256 internal constant MAX_PROOF_LENGTH = 32;
     uint256 internal constant MAX_VERSION_LENGTH = 32;
 
-    /// @notice Minimum stake-per-step in ETH (wei).
-    uint256 public constant MIN_STAKE_PER_STEP = 0.0000001 ether;
+    /// @notice Minimum stake-per-step in GSTEP (token-wei, 1e18).
+    uint256 internal constant MIN_STAKE_PER_STEP = 1e16; // example: 0.01 GSTEP/step
 
-    /// @notice Maximum stake-per-step in ETH (wei).
-    uint256 public constant MAX_STAKE_PER_STEP = 0.001 ether;
+    /// @notice Maximum stake-per-step in GSTEP (token-wei, 1e18).
+    uint256 internal constant MAX_STAKE_PER_STEP = 5e16; // or higher if you want headroom
 
     /// @notice Cooldown between oracle-driven stake requirement adjustments.
-    uint256 public constant STAKE_ADJUST_COOLDOWN = 1 days;
+    uint256 internal constant STAKE_ADJUST_COOLDOWN = 1 days;
 
     /// @dev Target stake policy percent (derived from oracle price, in ETH terms).
     uint256 internal constant TARGET_STAKE_PERCENT = 10;
-    
+
+    /// @dev Count of successful non-trusted (user-path) submissions per user.
+    mapping(address => uint256) internal nonApiSubmissionCount;
+
+    /// @notice Total amount of GSTEP currently locked in staking.
+    /// @dev
+    ///  - Denominated in GSTEP token units (18 decimals).
+    ///  - Must equal the sum of all {stakeBalance[user]} across users.
+    ///  - Used to protect staked user funds from being withdrawn via emergency withdrawals.
+    ///  - Only "free" contract balance may be withdrawn:
+    ///  - Invariant target: sum(stakeBalance[all users]) == totalStaked.
+    ///  - Emergency withdrawals must only withdraw:
+    ///      free = balanceOf(address(this)) - totalStaked
+
+    uint256 internal totalStaked;
+
     /* =============================================================
                     STAKING / SPLIT POLICY CONSTANTS
     ============================================================= */
@@ -196,36 +208,33 @@ abstract contract GemStepStorage {
     uint256 internal constant STAKE_D2 = 500; // 5.00%
     uint256 internal constant STAKE_D3 = 900; // 9.00%
 
-    /// @dev Staking-only pause (independent of OZ Pausable).
-    bool internal stakingPaused;
-
     /* =============================================================
                                    STATE
        ============================================================= */
 
     /// @notice Retained for storage compatibility (fee-on-transfer removed elsewhere).
-    uint256 public burnFee;
+    uint256 internal burnFee;
 
     /// @notice Current reward rate (tokens per step).
-    uint256 public rewardRate;
+    uint256 internal rewardRate;
 
     /// @notice Maximum steps per submission.
-    uint256 public stepLimit;
+    uint256 internal stepLimit;
 
     /// @notice Max acceptable deadline distance into the future.
-    uint256 public signatureValidityPeriod;
+    uint256 internal signatureValidityPeriod;
 
     /// @notice Emergency withdrawals enabled flag.
-    bool public emergencyWithdrawEnabled;
+    bool internal emergencyWithdrawEnabled;
 
     /// @notice Earliest time emergency withdrawals can be executed after enabling.
-    uint256 public emergencyWithdrawUnlockTime;
+    uint256 internal emergencyWithdrawUnlockTime;
 
     /// @dev Base monthly limit (internal policy anchor).
     uint256 internal monthlyMintLimit;
 
     /// @notice Amount minted (net) in current month window.
-    uint256 public currentMonthMinted;
+    uint256 internal currentMonthMinted;
 
     /// @dev Current month index (timestamp / SECONDS_PER_MONTH).
     uint256 internal currentMonth;
@@ -234,13 +243,13 @@ abstract contract GemStepStorage {
     uint256 internal lastMonthUpdate;
 
     /// @notice Cumulative distributed total used for halving threshold tracking.
-    uint256 public distributedTotal;
+    uint256 internal distributedTotal;
 
     /// @notice Current monthly cap (may change via halving schedule).
-    uint256 public currentMonthlyCap;
+    uint256 internal currentMonthlyCap;
 
     /// @notice Halving counter.
-    uint256 public halvingCount;
+    uint256 internal halvingCount;
 
     /// @dev Initial admin captured at initialize for one-time role migration.
     address internal initialAdmin;
@@ -262,17 +271,20 @@ abstract contract GemStepStorage {
     address internal l1Validator;
     address payable internal arbEthBridge;
 
-    /// @dev Price oracle address (cast to interface where used).
+    /// @dev Retained for future policy changes (oracle logic currently unused).
     address internal priceOracle;
 
-    /// @notice Current stake required per step (wei).
-    uint256 public currentStakePerStep;
+    /// @notice Current stake required per step (GSTEP token-wei, 1e18).
+    uint256 internal currentStakePerStep;
 
     /// @notice Timestamp of last stake parameter adjustment.
-    uint256 public lastStakeAdjustment;
+    uint256 internal lastStakeAdjustment;
 
     /// @notice Emergency lock on stake parameter changes.
-    bool public stakeParamsLocked;
+    bool internal stakeParamsLocked;
+
+    /// @dev Staking-only pause (independent of OZ Pausable).
+    bool internal stakingPaused;
 
     /* =============================================================
                                   MAPPINGS
@@ -300,10 +312,10 @@ abstract contract GemStepStorage {
     mapping(address => string) internal lastSource;
 
     /// @notice Trusted ERC-1271 contract wallets.
-    mapping(address => bool) public trustedERC1271Contracts;
+    mapping(address => bool) internal trustedERC1271Contracts;
 
     /// @notice Approved recipients for emergency withdrawals.
-    mapping(address => bool) public approvedRecipients;
+    mapping(address => bool) internal approvedRecipients;
 
     /// @dev Used merkle leaves (leaf => used).
     mapping(bytes32 => bool) internal usedLeaves;
@@ -336,10 +348,10 @@ abstract contract GemStepStorage {
     /// @dev User EMA average (scaled ×100).
     mapping(address => uint256) internal userStepAverage;
 
-    /// @dev Number of anomaly flags per user.
+    /// @dev Legacy anomaly/suspension state retained for layout compatibility (currently unused).
     mapping(address => uint256) internal flaggedSubmissions;
 
-    /// @dev Suspension timestamp per user.
+    /// @dev Legacy anomaly/suspension state retained for layout compatibility (currently unused).
     mapping(address => uint256) internal suspendedUntil;
 
     /// @dev Staked GSTEP balance per user (token-staking module).
@@ -354,8 +366,9 @@ abstract contract GemStepStorage {
     /// @dev Timestamp of first submission per user (grace-period anchor).
     mapping(address => uint256) internal userFirstSubmission;
 
-    /// @notice Tunable anomaly threshold (kept in-place for layout compatibility).
-    uint256 public anomalyThreshold;
+    /// @notice Tunable onboarding cap for non-API submissions (count).
+    /// @dev Stored in legacy slot name {anomalyThreshold} for layout compatibility.
+    uint256 internal anomalyThreshold;
 
     /* =============================================================
                               VERSION CONTROLS
@@ -373,14 +386,8 @@ abstract contract GemStepStorage {
     /// @dev Payload version deprecation time (hash => unix time; 0 = not scheduled).
     mapping(bytes32 => uint256) internal payloadVersionDeprecatesAt;
 
-    /// @notice Legacy attestation replay guard (device + typedHash => used).
-    mapping(bytes32 => bool) public usedAttestations;
-
     /// @notice ERC-1271 digest replay guard: wallet => digest => used.
-    mapping(address => mapping(bytes32 => bool)) public used1271Digests;
-
-    /// @dev Attestation version hash => whether nonce-binding is required.
-    mapping(bytes32 => bool) internal attestationRequiresNonce;
+    mapping(address => mapping(bytes32 => bool)) internal used1271Digests;
 
     /* =============================================================
                                    EVENTS
@@ -437,7 +444,6 @@ abstract contract GemStepStorage {
     event OracleUpdated(address indexed newOracle);
     event MultisigSet(address multisig);
     event Trusted1271Set(address indexed contractAddr, bool trusted);
-    event AttestationNonceRequirementSet(string normVersion, bool required);
 
     event TreasurySet(address indexed treasury);
 
@@ -472,7 +478,6 @@ abstract contract GemStepStorage {
         string version; // client/schema tag (normalized & allowlisted)
     }
 
-    /// @notice Verification bundle used by {GS_StepsAndVerification.logSteps}.
     struct VerificationData {
         /// @notice EIP-712 signature for the step digest.
         bytes signature;
@@ -480,10 +485,9 @@ abstract contract GemStepStorage {
         /// @notice Optional merkle proof (source-dependent).
         bytes32[] proof;
 
-        /// @notice Optional device attestation blob:
-        /// @dev abi.encode(address device, uint256 timestamp, string attestationVersion, bytes sig)
-        ///      - v2 binds nonce (signed with ATTESTATION_V2_TYPEHASH)
-        ///      - legacy v1 uses ATTESTATION_TYPEHASH (no nonce-binding)
+        /// @notice Optional device attestation blob (V2 only).
+        /// @dev abi.encode(address device, uint256 timestamp, bytes32 versionHash, bytes sig)
+        ///      - Always nonce-bound (binds to data.nonce)
         bytes attestation;
     }
 

@@ -4,26 +4,23 @@ pragma solidity ^0.8.30;
 import "../core/GemStepCore.sol";
 
 /// @title GS_AnomalyAndFraud
-/// @notice Anomaly detection and fraud-prevention module for step submissions.
+/// @notice Fraud-prevention module for step submissions (NO SLASHING / NO PENALTIES).
 /// @dev
-///  - Implements GemStepCore hooks used by the step verification module:
-///    - {_applyFraudPrevention}: pre-checks before accepting a submission
-///    - {_recordSubmissionAndAnomaly}: records timing/daily totals and applies anomaly penalties
-///  - Key mechanics:
-///    - Per-(user,source) minimum submission interval
-///    - Per-(user,source) daily step cap (UTC day index)
-///    - Stake requirement for user-path submissions (non-trusted API callers)
-///    - Anomaly detection against an EMA-like rolling average with a grace period
-///    - Penalty slashing and suspension after repeated anomalies
-///  - Trusted API callers are exempt from stake requirement and anomaly penalties,
-///    but are still recorded for interval/daily tracking and EMA updates.
+///  UPDATED BEHAVIOR (per your latest rules):
+///   - Stake asset is GSTEP (token units, 18 decimals).
+///   - For NON-trusted callers (user-path):
+///        1) Enforce min-interval + daily cap
+///        2) Require stake >= steps * MIN_STAKE_PER_STEP  (MIN_STAKE_PER_STEP is GSTEP-per-step)
+///        3) Allow only the first {anomalyThreshold} successful NON-API submissions per user
+///           After that: revert "GS: trusted API caller/relayer required" (so no more minting without trusted API caller).
+///   - Trusted API callers are exempt from onboarding cap and stake requirement.
+///   - EMA tracking is retained (optional analytics), but NO penalties and NO slashing are applied.
 abstract contract GS_AnomalyAndFraud is GemStepCore {
     /* =============================================================
                          HOOK: FRAUD PREVENTION (PRE)
        ============================================================= */
 
     /// @inheritdoc GemStepCore
-    /// @dev Enforces min-interval, daily cap, and (for non-API callers) stake requirement.
     function _applyFraudPrevention(
         address user,
         uint256 steps,
@@ -33,33 +30,33 @@ abstract contract GS_AnomalyAndFraud is GemStepCore {
         uint256 ts = block.timestamp;
 
         /* -------------------- Min interval per (user,source) -------------------- */
-        require(
-            ts >= lastSubmission[user][source] + config.minInterval,
-            "Submission too frequent"
-        );
+        require(ts >= lastSubmission[user][source] + config.minInterval, "Submission too frequent");
 
         /* ----------------------- Daily cap (UTC day index) ----------------------- */
         uint256 day = ts / 1 days;
-        uint256 usedToday = (dailyIndex[user][source] == day)
-            ? dailyStepTotal[user][source]
-            : 0;
-
+        uint256 usedToday = (dailyIndex[user][source] == day) ? dailyStepTotal[user][source] : 0;
         require(usedToday + steps <= config.maxStepsPerDay, "Daily limit exceeded");
 
-        /* ---------------- Stake requirement for user-path only ------------------ */
-        // Trusted API callers are exempt (e.g., backend relayer).
+        /* ---------------- Onboarding + stake gate (NON-API callers) -------------- */
+        // Trusted API callers are exempt (backend relayer / approved signer path).
         if (!isTrustedAPI[msg.sender]) {
-            uint256 requiredStake = steps * currentStakePerStep;
+            // After onboarding submissions are used up, only trusted API callers may submit/mint.
+            require(nonApiSubmissionCount[user] < anomalyThreshold, "GS: trusted API caller/relayer required");
+
+            // During onboarding, require minimum stake (token-denominated, 18 decimals).
+            // IMPORTANT: MIN_STAKE_PER_STEP must be defined as GSTEP-per-step (not wei).
+            uint256 requiredStake = steps * MIN_STAKE_PER_STEP;
             require(stakeBalance[user] >= requiredStake, "Insufficient stake");
         }
     }
 
     /* =============================================================
-                       HOOK: RECORD + ANOMALY (POST)
+                       HOOK: RECORD (POST)
        ============================================================= */
 
     /// @inheritdoc GemStepCore
-    /// @dev Records timing/daily totals; applies anomaly penalty/suspension for non-API callers.
+    /// @dev Records timing/daily totals; increments onboarding counter for non-API callers.
+    ///      No penalties/slashing/suspension logic is applied in this revised version.
     function _recordSubmissionAndAnomaly(
         address user,
         uint256 steps,
@@ -81,50 +78,19 @@ abstract contract GS_AnomalyAndFraud is GemStepCore {
         }
 
         /* ---------------- First submission timestamp (grace anchor) ---------- */
-        uint256 first = userFirstSubmission[user];
-        if (first == 0) {
+        // Still useful for analytics/telemetry and for future logic if reintroduced.
+        if (userFirstSubmission[user] == 0) {
             userFirstSubmission[user] = ts;
-            first = ts;
         }
 
-        /* ---------------- Anomaly penalties (NON-API callers only) ----------- */
-        // Trusted API callers are exempt from penalties/suspension, but still
-        // contribute to the user's EMA tracking below.
+        /* ---------------- Count onboarding submissions (NON-API only) -------- */
         if (!isTrustedAPI[msg.sender]) {
-            uint256 avgScaled = userStepAverage[user]; // scaled by 100 (see EMA update below)
-
-            // Only start anomaly checks after grace period and once average is meaningful.
-            if (ts >= first + GRACE_PERIOD && avgScaled >= MIN_AVERAGE_FOR_ANOMALY) {
-                // Trigger condition: steps is anomalyThreshold% above average (scaled math).
-                // e.g. steps*100 > avgScaled*anomalyThreshold
-                if (steps * 100 > avgScaled * anomalyThreshold) {
-                    // Penalty based on stake-per-step and a percentage. Ensure dust floor = 1.
-                    uint256 penalty = (steps * currentStakePerStep * PENALTY_PERCENT) / 100;
-                    if (penalty == 0) penalty = 1;
-
-                    // Apply up to available stake.
-                    uint256 avail = stakeBalance[user];
-                    uint256 applied = penalty <= avail ? penalty : avail;
-
-                    if (applied > 0) {
-                        stakeBalance[user] = avail - applied;
-                        emit PenaltyApplied(user, applied);
-                    }
-
-                    // Track flags; suspend after 3.
-                    uint256 flags = flaggedSubmissions[user] + 1;
-                    flaggedSubmissions[user] = flags;
-
-                    if (flags >= 3) {
-                        uint256 untilTs = ts + SUSPENSION_DURATION;
-                        suspendedUntil[user] = untilTs;
-                        emit UserSuspended(user, untilTs);
-                    }
-                }
+            unchecked {
+                nonApiSubmissionCount[user] += 1;
             }
         }
 
-        /* ---------------- Update EMA after detection (for everyone) ----------- */
+        /* ---------------- Update EMA (optional analytics) -------------------- */
         // EMA-like update with 90% previous + 10% new; scaled by 100.
         uint256 prev = userStepAverage[user];
         userStepAverage[user] = (prev * 9 + steps * 100) / 10;

@@ -12,6 +12,8 @@ import "../core/GemStepCore.sol";
 ///    - Supply/cap constants live in GemStepStorage
 ///  - Implements the {_configureSource} hook declared in {GemStepCore}.
 ///  - Uses hashed/normalized versions to avoid "1.0" vs "1.0.0" allowlist drift.
+///  - Compatible with V2-only attestation flow where the device submits `versionHash` (bytes32)
+///    and the contract checks `supportedAttestationVersions[versionHash]`.
 abstract contract GS_Admin is GemStepCore {
     /* =============================================================
                                VERSION HELPERS
@@ -21,7 +23,6 @@ abstract contract GS_Admin is GemStepCore {
     /// @param v Version string.
     /// @return norm Normalized version string (e.g., "1.0" => "1.0.0").
     /// @return h keccak256 hash of the normalized string.
-    /// @dev Small helper to avoid repeating normalize+hash patterns.
     function _normHash(string calldata v) internal pure returns (string memory norm, bytes32 h) {
         norm = _normalizeVersion(v);
         h = keccak256(bytes(norm));
@@ -29,7 +30,7 @@ abstract contract GS_Admin is GemStepCore {
 
     /// @notice Validate version string length to enforce {MAX_VERSION_LENGTH}.
     /// @param v Version string.
-    /// @dev Reverts with the canonical "Bad version" message to preserve compatibility.
+    /// @dev Reverts with canonical "Bad version" to keep compatibility.
     function _checkVersionLen(string calldata v) private pure {
         uint256 l = bytes(v).length;
         require(l > 0 && l <= MAX_VERSION_LENGTH, "Bad version");
@@ -54,12 +55,13 @@ abstract contract GS_Admin is GemStepCore {
 
     /// @notice Schedule deprecation time for a payload version (does not remove allowlist bit).
     /// @param version Version string.
-    /// @param when Unix timestamp after which the version is considered deprecated by consumers.
+    /// @param when Unix timestamp after which the version is considered deprecated.
     /// @dev Requires {PARAMETER_ADMIN_ROLE}.
     function deprecatePayloadVersion(string calldata version, uint256 when)
         external
         onlyRole(PARAMETER_ADMIN_ROLE)
     {
+        _checkVersionLen(version);
         (string memory norm, bytes32 h) = _normHash(version);
         require(supportedPayloadVersions[h], "Version not supported");
         payloadVersionDeprecatesAt[h] = when;
@@ -78,7 +80,8 @@ abstract contract GS_Admin is GemStepCore {
         onlyRole(PARAMETER_ADMIN_ROLE)
     {
         _addSupportedAttestationVersion(version);
-        emit VersionAdded(version);
+        // legacy event name retained
+        emit VersionAdded(_normalizeVersion(version));
     }
 
     /// @notice Add a supported attestation version (normalized) to the allowlist.
@@ -91,47 +94,44 @@ abstract contract GS_Admin is GemStepCore {
         _addSupportedAttestationVersion(version);
     }
 
-    /// @notice Internal worker to add a supported attestation version.
+    /// @notice Internal worker to add a supported attestation version (string → versionHash allowlist).
     /// @param version Version string.
     /// @dev
-    ///  - Sets {attestationRequiresNonce[h]} to true by default (nonce-binding enforced).
-    ///  - Emits {AttestationVersionAdded} for the normalized version.
+    ///  - Adds allowlist bit in {supportedAttestationVersions} keyed by:
+    ///      versionHash = keccak256(bytes(_normalizeVersion(version))).
+    ///  - Emits {AttestationVersionAdded} for the normalized version string.
     function _addSupportedAttestationVersion(string calldata version) internal {
         _checkVersionLen(version);
         (string memory norm, bytes32 h) = _normHash(version);
 
         supportedAttestationVersions[h] = true;
-        attestationRequiresNonce[h] = true;
-
         emit AttestationVersionAdded(norm);
+    }
+
+    /// @notice Add a supported attestation version directly by hash (advanced).
+    /// @param h keccak256(bytes(normalizedVersionString)).
+    /// @dev Requires {PARAMETER_ADMIN_ROLE}. No string event is emitted.
+    function addSupportedAttestationVersionHash(bytes32 h)
+        external
+        onlyRole(PARAMETER_ADMIN_ROLE)
+    {
+        require(h != bytes32(0), "zero hash");
+        supportedAttestationVersions[h] = true;
     }
 
     /// @notice Schedule deprecation time for an attestation version.
     /// @param version Version string.
-    /// @param when Unix timestamp after which the version is considered deprecated by consumers.
+    /// @param when Unix timestamp after which the version is considered deprecated.
     /// @dev Requires {PARAMETER_ADMIN_ROLE}.
     function deprecateAttestationVersion(string calldata version, uint256 when)
         external
         onlyRole(PARAMETER_ADMIN_ROLE)
     {
+        _checkVersionLen(version);
         (string memory norm, bytes32 h) = _normHash(version);
         require(supportedAttestationVersions[h], "Attest ver not supported");
         attestationVersionDeprecatesAt[h] = when;
         emit AttestationVersionDeprecated(norm, when);
-    }
-
-    /// @notice Set whether nonce-binding is required for a particular attestation version.
-    /// @param version Version string.
-    /// @param required True to enforce nonce-binding; false to relax it.
-    /// @dev Requires {PARAMETER_ADMIN_ROLE}.
-    function setAttestationNonceRequired(string calldata version, bool required)
-        external
-        onlyRole(PARAMETER_ADMIN_ROLE)
-    {
-        (string memory norm, bytes32 h) = _normHash(version);
-        require(supportedAttestationVersions[h], "Attest ver not supported");
-        attestationRequiresNonce[h] = required;
-        emit AttestationNonceRequirementSet(norm, required);
     }
 
     /* =============================================================
@@ -390,10 +390,10 @@ abstract contract GS_Admin is GemStepCore {
 
     /// @inheritdoc GemStepCore
     /// @dev
-    ///  - Marks the source as valid and writes its config defaults:
-    ///    - merkleRoot = 0
-    ///    - maxStepsPerDay = MAX_STEPS_PER_DAY
-    ///    - minInterval  = MIN_SUBMISSION_INTERVAL
+    ///  - Marks the source as valid and updates proof/attestation requirements.
+    ///  - Preserves merkleRoot and any previously tuned maxStepsPerDay/minInterval.
+    ///  - If limits are unset (0), initializes them to defaults.
+    ///  - minInterval == 0 means "unset" and will default to MIN_SUBMISSION_INTERVAL.
     ///  - Emits {SourceConfigured}.
     function _configureSource(
         string memory source,
@@ -405,9 +405,9 @@ abstract contract GS_Admin is GemStepCore {
         SourceConfig storage config = sourceConfigs[source];
         config.requiresProof = requiresProof;
         config.requiresAttestation = requiresAttestation;
-        config.merkleRoot = bytes32(0);
-        config.maxStepsPerDay = MAX_STEPS_PER_DAY;
-        config.minInterval = MIN_SUBMISSION_INTERVAL;
+
+        if (config.maxStepsPerDay == 0) config.maxStepsPerDay = MAX_STEPS_PER_DAY;
+        if (config.minInterval == 0) config.minInterval = MIN_SUBMISSION_INTERVAL;
 
         emit SourceConfigured(source, requiresProof, requiresAttestation);
     }
@@ -416,7 +416,7 @@ abstract contract GS_Admin is GemStepCore {
     /// @param source Source key.
     /// @dev
     ///  - Authorized if caller has {PARAMETER_ADMIN_ROLE} OR is the contract itself
-    ///    (enables timelock/self-calls if you route through governance).
+    ///    (enables timelock/self-calls if routed through governance).
     ///  - Enforces [MIN_SOURCE_LENGTH, MAX_SOURCE_LENGTH] and alphanumeric-only characters.
     ///  - Sets {validSources[source]} to true and emits {SourceAdded}.
     function _addValidSource(string calldata source) internal {

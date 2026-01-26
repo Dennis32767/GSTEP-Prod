@@ -21,6 +21,8 @@ import "../../token/interfaces/IPriceOracleV2.sol";
 ///    (e.g. GS_StepsAndVerification, GS_AnomalyAndFraud, GS_MintingAndSupply, GS_Staking, etc.).
 ///  - Storage is inherited from {GemStepStorage}. Keep inherited base order stable for audit parity.
 ///  - Uses a custom hard cap check via {_mintWithHardCap} instead of ERC20CappedUpgradeable to save bytecode.
+///  - The oracle address is retained for storage compatibility; it may be unset (address(0)) if oracle-based
+///    stake adjustment is disabled in this deployment.
 abstract contract GemStepCore is
     Initializable,
     ERC20Upgradeable,
@@ -127,12 +129,13 @@ abstract contract GemStepCore is
     /// @notice Initialize core state for the proxy deployment.
     /// @param initialSupply Must equal {INITIAL_SUPPLY}.
     /// @param admin Primary governance/admin address to receive roles.
-    /// @param _priceOracle Price oracle contract address.
+    /// @param _priceOracle Price oracle contract address (optional; may be address(0)).
     /// @param _treasury Treasury address to receive the initial mint.
     /// @dev
     ///  - Must be called exactly once via proxy.
     ///  - Grants roles to `admin`, and optionally to deployer for scripted bootstrap.
-    ///  - Sets token name/symbol, EIP-712 domain, oracle, treasury, defaults, and allowlists.
+    ///  - Sets token name/symbol, EIP-712 domain, treasury, defaults, and allowlists.
+    ///  - Oracle is retained for compatibility; deployments may disable oracle-driven behavior by setting it to 0.
     function initialize(
         uint256 initialSupply,
         address admin,
@@ -140,7 +143,6 @@ abstract contract GemStepCore is
         address _treasury
     ) public virtual initializer {
         require(admin != address(0), "Invalid admin address");
-        require(_priceOracle != address(0), "Invalid price oracle");
         require(_treasury != address(0), "Treasury not set");
 
         // Enforce tokenomics constants at deploy-time.
@@ -160,13 +162,15 @@ abstract contract GemStepCore is
         // Arbitrum ETH bridge (can be made configurable via a setter if desired).
         arbEthBridge = payable(0x8315177aB297bA92A06054cE80a67Ed4DBd7ed3a);
 
-        // Oracle & Treasury (stored as addresses; modules can cast to IPriceOracleV2 where needed).
+        // Oracle & Treasury (oracle optional; kept for compatibility / future modules).
         priceOracle = _priceOracle;
         treasury = _treasury;
 
-        /* ------------------- Dynamic staking defaults ---------------------- */
+        /* ------------------- Staking defaults (token units) ---------------- */
+        // currentStakePerStep is denominated in GSTEP token units (18 decimals).
         currentStakePerStep = MIN_STAKE_PER_STEP;
         stakeParamsLocked = false;
+
         uint256 ts = block.timestamp;
         lastStakeAdjustment = ts;
 
@@ -196,7 +200,7 @@ abstract contract GemStepCore is
         /* ------------------------- Tokenomics defaults --------------------- */
         burnFee = 0; // fee-on-transfer removed; splits occur in minting module
         rewardRate = REWARD_RATE_BASE;
-        stepLimit = 5000;
+        stepLimit = 10_000;
         signatureValidityPeriod = DEFAULT_SIGNATURE_VALIDITY;
 
         /* ----------------------- Month / cap tracking ---------------------- */
@@ -205,8 +209,7 @@ abstract contract GemStepCore is
         monthlyMintLimit = MONTHLY_MINT_LIMIT;
         currentMonthlyCap = MONTHLY_MINT_LIMIT;
 
-        // Ensure month state is coherent at initialization time.
-        _syncMonth();
+        // NOTE: _syncMonth() is redundant during initialize because currentMonth is set from ts.
 
         /* -------------------------- Initial mint --------------------------- */
         // Mint initial supply to Treasury (NOT deployer).
@@ -230,9 +233,6 @@ abstract contract GemStepCore is
         bytes32 av = keccak256(bytes(DEFAULT_PAYLOAD_VERSION)); // "1.0.0"
         supportedAttestationVersions[av] = true;
         emit AttestationVersionAdded(DEFAULT_PAYLOAD_VERSION);
-
-        // Enforce nonce-bound attestations for the current attestation version by default.
-        attestationRequiresNonce[av] = true;
 
         /* ----------------------- Anomaly configuration --------------------- */
         anomalyThreshold = ANOMALY_THRESHOLD;
@@ -282,16 +282,26 @@ abstract contract GemStepCore is
     }
 
     /// @notice Synchronize month tracking (rollover if block timestamp enters a new month window).
-    /// @dev Resets {currentMonthMinted} when month advances and emits rollover events.
+    /// @dev
+    ///  - Uses fixed 30-day months (SECONDS_PER_MONTH).
+    ///  - When month advances:
+    ///      * currentMonthMinted resets to 0 (no carryover)
+    ///      * currentMonthlyCap resets to monthlyMintLimit (baseline for the new month)
+    ///  - monthlyMintLimit is assumed to be the “policy cap” (initial or halving-adjusted).
     function _syncMonth() internal virtual {
         uint256 newMonth = block.timestamp / SECONDS_PER_MONTH;
-        if (newMonth > currentMonth) {
-            currentMonth = newMonth;
-            currentMonthMinted = 0;
-            lastMonthUpdate = block.timestamp;
-            emit MonthAdvanced(newMonth);
-            emit MonthRollover(newMonth, currentMonthlyCap);
-        }
+        if (newMonth <= currentMonth) return;
+
+        currentMonth = newMonth;
+        currentMonthMinted = 0;
+        lastMonthUpdate = block.timestamp;
+
+        // ✅ No rollover of unused limits:
+        // Each month starts with the policy cap (initial or halving-adjusted).
+        currentMonthlyCap = monthlyMintLimit;
+
+        emit MonthAdvanced(newMonth);
+        emit MonthRollover(newMonth, currentMonthlyCap);
     }
 
     /* =============================================================
@@ -305,7 +315,7 @@ abstract contract GemStepCore is
         virtual
         override(ERC20Upgradeable)
     {
-        require(!paused(), "Token transfers paused");
+        require(!paused(), "P");
         super._update(from, to, value);
     }
 
@@ -331,9 +341,7 @@ abstract contract GemStepCore is
         override(AccessControlUpgradeable)
         returns (bool)
     {
-        return
-            interfaceId == type(IERC165Upgradeable).interfaceId ||
-            super.supportsInterface(interfaceId);
+        return super.supportsInterface(interfaceId);
     }
 
     /* =============================================================
@@ -375,7 +383,7 @@ abstract contract GemStepCore is
        ============================================================= */
 
     /// @notice Returns the configured price oracle as an interface.
-    /// @dev Convenience helper; does not change storage layout.
+    /// @dev Convenience helper; safe even when {priceOracle} is address(0).
     function _oracle() internal view returns (IPriceOracleV2) {
         return IPriceOracleV2(priceOracle);
     }

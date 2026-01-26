@@ -595,28 +595,44 @@ describe("GemStepToken – Unified Deployment & Functional Suite", function () {
     });
 
     it("Step rewards accrue correctly (fitbit + proof-aware)", async function () {
-      const { token, user1, admin } = await loadFixture(deployGemStepFixture);
+    const { token, user1, admin } = await loadFixture(deployGemStepFixture);
 
-      const userAddr = await user1.getAddress();
-      const { proof } = await prepareSourceForSubmission({
-        token,
-        adminSigner: admin,
-        userAddr,
-        source: "fitbit",
-        steps: 25,
-      });
+    const userAddr = await user1.getAddress();
 
-      const bal0 = await token.balanceOf(userAddr);
-      await submitSteps({ token, admin, userSigner: user1, steps: 25, source: "fitbit", extra: { proof } });
-      const bal1 = await token.balanceOf(userAddr);
-
-      expect(bal1 - bal0).to.be.gt(0n);
-
-      const rr = await readOpt(token, "rewardRate");
-      if (rr !== null) {
-        expect(bal1 - bal0).to.be.lte(BigInt(rr.toString()) * 25n);
-      }
+    // Prep source (may set merkleRoot/disable proof)
+    const { proof } = await prepareSourceForSubmission({
+      token,
+      adminSigner: admin,
+      userAddr,
+      source: "fitbit",
+      steps: 25,
     });
+
+    // ✅ Ensure stake ONCE, before taking bal0 (so staking doesn't distort delta)
+    await ensureStakeForSteps({ token, admin, userSigner: user1, steps: 25 });
+
+    const bal0 = await token.balanceOf(userAddr);
+
+    // ✅ Do NOT pass admin here, otherwise submitSteps() might top-up stake and lower user balance
+    await submitSteps({
+      token,
+      admin: null,
+      userSigner: user1,
+      steps: 25,
+      source: "fitbit",
+      extra: { proof },
+    });
+
+    const bal1 = await token.balanceOf(userAddr);
+
+    expect(bal1 - bal0).to.be.gt(0n);
+
+    const rr = await readOpt(token, "rewardRate");
+    if (rr !== null) {
+      expect(bal1 - bal0).to.be.lte(BigInt(rr.toString()) * 25n);
+    }
+  });
+
 
     it("Rejects invalid sources", async function () {
       const { token, admin, user1 } = await loadFixture(deployGemStepFixture);
@@ -656,31 +672,43 @@ describe("GemStepToken – Unified Deployment & Functional Suite", function () {
     });
 
     it("Handles consecutive step submissions without precision loss", async function () {
-      const { token, user1, admin } = await loadFixture(deployGemStepFixture);
+  const { token, user1, admin } = await loadFixture(deployGemStepFixture);
 
-      const { source, proof } = await pickUsableSourceWithPrep({ token, admin, userSigner: user1, steps: 3 });
-      if (!source) return this.skip();
+  const { source, proof } = await pickUsableSourceWithPrep({
+    token,
+    admin,
+    userSigner: user1,
+    steps: 3,
+  });
+  if (!source) return this.skip();
 
-      const userAddr = await user1.getAddress();
+  const userAddr = await user1.getAddress();
 
-      // First submission
-      const bal0 = await token.balanceOf(userAddr);
-      await submitSteps({ token, admin, userSigner: user1, steps: 3, source, extra: { proof } });
+  // ✅ Stake once for BOTH submissions (avoid auto top-up inside submitSteps)
+  // Give headroom for 2 submissions:
+  await ensureStakeForSteps({ token, admin, userSigner: user1, steps: 6 });
 
-      // Respect minInterval if exposed
-      const flags = await readSourceFlags(token, source);
-      if (flags && flags.minInterval > 0n) {
-        await time.increase(Number(flags.minInterval + 1n));
-      } else {
-        await time.increase(2);
-      }
+  const bal0 = await token.balanceOf(userAddr);
 
-      // Second submission
-      await submitSteps({ token, admin, userSigner: user1, steps: 3, source, extra: { proof } });
-      const bal1 = await token.balanceOf(userAddr);
+  // First submission (no admin => no stake top-up)
+  await submitSteps({ token, admin: null, userSigner: user1, steps: 3, source, extra: { proof } });
 
-      expect(bal1 - bal0).to.be.gt(0n);
-    });
+  // Respect minInterval if exposed
+  const flags = await readSourceFlags(token, source);
+  if (flags && flags.minInterval > 0n) {
+    await time.increase(Number(flags.minInterval + 1n));
+  } else {
+    await time.increase(2);
+  }
+
+  // Second submission (no admin => no stake top-up)
+  await submitSteps({ token, admin: null, userSigner: user1, steps: 3, source, extra: { proof } });
+
+  const bal1 = await token.balanceOf(userAddr);
+
+  expect(bal1 - bal0).to.be.gt(0n);
+});
+
 
     it("Security: non-minters cannot mint (if no public mint, test is irrelevant)", async function () {
       const { token, user1 } = await loadFixture(deployGemStepFixture);
