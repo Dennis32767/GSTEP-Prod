@@ -84,9 +84,9 @@ contract GemStepViews {
     uint256 internal constant MONTHLY_MINT_LIMIT = 2_000_000 * 10 ** DECIMALS;
 
     /// @dev Must match GemStepStorage.MIN_STAKE_PER_STEP / MAX_STAKE_PER_STEP / STAKE_ADJUST_COOLDOWN
-    /// @dev IMPORTANT: these are GSTEP token units (token-wei, 1e18), NOT ETH/wei.
-    uint256 internal constant MIN_STAKE_PER_STEP = 1e16; // 0.01 GSTEP/step
-    uint256 internal constant MAX_STAKE_PER_STEP = 5e16; // 0.05 GSTEP/step
+    /// @dev IMPORTANT: these are GEMS token units (token-wei, 1e18), NOT ETH/wei.
+    uint256 internal constant MIN_STAKE_PER_STEP = 1e16; // 0.01 GEMS/step
+    uint256 internal constant MAX_STAKE_PER_STEP = 5e16; // 0.05 GEMS/step
     uint256 internal constant STAKE_ADJUST_COOLDOWN = 1 days;
 
     /* ========================= STAKING / SPLIT POLICY CONSTANTS =========================

@@ -83,10 +83,10 @@ abstract contract GemStepStorage {
     /// @dev Maximum supply (hard cap).
     uint256 internal constant MAX_SUPPLY = 1_000_000_000 * 10 ** DECIMALS;
 
-    /// @dev Default reward rate (tokens per step, 18 decimals). Example: 0.001 GSTEP/step.
+    /// @dev Default reward rate (tokens per step, 18 decimals). Example: 0.001 GEMS/step.
     uint256 internal constant REWARD_RATE_BASE = 1e15;
 
-    /// @dev Maximum allowed reward rate by governance policy. Example: 0.01 GSTEP/step.
+    /// @dev Maximum allowed reward rate by governance policy. Example: 0.01 GEMS/step.
     uint256 internal constant MAX_REWARD_RATE = 1e16;
 
     /// @dev Percent helper base (100%).
@@ -155,10 +155,10 @@ abstract contract GemStepStorage {
     uint256 internal constant MAX_PROOF_LENGTH = 32;
     uint256 internal constant MAX_VERSION_LENGTH = 32;
 
-    /// @notice Minimum stake-per-step in GSTEP (token-wei, 1e18).
-    uint256 internal constant MIN_STAKE_PER_STEP = 1e16; // example: 0.01 GSTEP/step
+    /// @notice Minimum stake-per-step in GEMS (token-wei, 1e18).
+    uint256 internal constant MIN_STAKE_PER_STEP = 1e16; // example: 0.01 GEMS/step
 
-    /// @notice Maximum stake-per-step in GSTEP (token-wei, 1e18).
+    /// @notice Maximum stake-per-step in GEMS (token-wei, 1e18).
     uint256 internal constant MAX_STAKE_PER_STEP = 5e16; // or higher if you want headroom
 
     /// @notice Cooldown between oracle-driven stake requirement adjustments.
@@ -170,9 +170,9 @@ abstract contract GemStepStorage {
     /// @dev Count of successful non-trusted (user-path) submissions per user.
     mapping(address => uint256) internal nonApiSubmissionCount;
 
-    /// @notice Total amount of GSTEP currently locked in staking.
+    /// @notice Total amount of GEMS currently locked in staking.
     /// @dev
-    ///  - Denominated in GSTEP token units (18 decimals).
+    ///  - Denominated in GEMS token units (18 decimals).
     ///  - Must equal the sum of all {stakeBalance[user]} across users.
     ///  - Used to protect staked user funds from being withdrawn via emergency withdrawals.
     ///  - Only "free" contract balance may be withdrawn:
@@ -274,7 +274,7 @@ abstract contract GemStepStorage {
     /// @dev Retained for future policy changes (oracle logic currently unused).
     address internal priceOracle;
 
-    /// @notice Current stake required per step (GSTEP token-wei, 1e18).
+    /// @notice Current stake required per step (GEMS token-wei, 1e18).
     uint256 internal currentStakePerStep;
 
     /// @notice Timestamp of last stake parameter adjustment.
@@ -354,7 +354,7 @@ abstract contract GemStepStorage {
     /// @dev Legacy anomaly/suspension state retained for layout compatibility (currently unused).
     mapping(address => uint256) internal suspendedUntil;
 
-    /// @dev Staked GSTEP balance per user (token-staking module).
+    /// @dev Staked GEMS balance per user (token-staking module).
     mapping(address => uint256) internal stakeBalance;
 
     /// @dev Weighted stake start timestamp per user (used for stake duration).

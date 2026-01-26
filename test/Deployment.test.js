@@ -81,7 +81,7 @@ describe("✅ Post-Deployment Checks - GemStepToken", function () {
     }
   });
 
-  it("✅ totalSupply is 40,000,000 GSTEP", async function () {
+  it("✅ totalSupply is 40,000,000 GEMS", async function () {
     const total = await token.totalSupply();
     if (total === 0n) {
       console.warn("ℹ️  totalSupply is 0 — deployment at TOKEN_ADDRESS appears uninitialized. Skipping strict check.");
@@ -90,7 +90,7 @@ describe("✅ Post-Deployment Checks - GemStepToken", function () {
     expect(total).to.equal(ethers.parseEther("40000000"));
   });
 
-  it("✅ currentMonthlyCap is 200,000 GSTEP", async function () {
+  it("✅ currentMonthlyCap is 200,000 GEMS", async function () {
     if (!token.currentMonthlyCap) return this.skip();
     const cap = await token.currentMonthlyCap();
     if (cap === 0n) {
@@ -100,7 +100,7 @@ describe("✅ Post-Deployment Checks - GemStepToken", function () {
     expect(cap).to.equal(ethers.parseEther("200000"));
   });
 
-  it("✅ monthlyMintLimit is 200,000 GSTEP", async function () {
+  it("✅ monthlyMintLimit is 200,000 GEMS", async function () {
     if (!token.monthlyMintLimit) return this.skip();
     const limit = await token.monthlyMintLimit();
     if (limit === 0n) {

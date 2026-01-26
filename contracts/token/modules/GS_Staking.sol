@@ -4,9 +4,9 @@ pragma solidity ^0.8.30;
 import "../core/GemStepCore.sol";
 
 /// @title GS_Staking
-/// @notice Stake (lock) GSTEP to qualify for reduced burn/treasury cuts.
+/// @notice Stake (lock) GEMS to qualify for reduced burn/treasury cuts.
 /// @dev
-///  - Users lock GSTEP by transferring into the token contract.
+///  - Users lock GEMS by transferring into the token contract.
 ///  - Stake age is tracked via a weighted start timestamp so top-ups preserve duration.
 ///  - No extra tokens are minted here; staking only adjusts reward split BPS via hooks.
 ///
@@ -37,11 +37,11 @@ abstract contract GS_Staking is GemStepCore {
                                  User Actions
        ============================================================= */
 
-    /// @notice Stake (lock) GSTEP to qualify for reduced burn/treasury cuts.
-    /// @param amount Amount of GSTEP to stake.
+    /// @notice Stake (lock) GEMS to qualify for reduced burn/treasury cuts.
+    /// @param amount Amount of GEMS to stake.
     /// @dev
     ///  - Updates weighted {stakeStart[msg.sender]} so top-ups preserve earned duration.
-    ///  - Transfers GSTEP from user to this token contract.
+    ///  - Transfers GEMS from user to this token contract.
     function stake(uint256 amount) external whenNotPaused whenStakingNotPaused {
         require(amount != 0, "0");
 
@@ -78,8 +78,8 @@ abstract contract GS_Staking is GemStepCore {
         emit Staked(u, amount);
     }
 
-    /// @notice Withdraw staked GSTEP.
-    /// @param amount Amount of GSTEP to withdraw.
+    /// @notice Withdraw staked GEMS.
+    /// @param amount Amount of GEMS to withdraw.
     /// @dev
     ///  - Reentrancy protected.
     ///  - If user fully exits, clears {stakeStart[user]}.

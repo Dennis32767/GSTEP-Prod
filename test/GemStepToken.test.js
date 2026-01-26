@@ -169,7 +169,7 @@ async function getSupplyCapsSafe(token) {
 
     const delta = need - have;
 
-    // Ensure user has enough GSTEP
+    // Ensure user has enough GEMS
     const bal = await token.balanceOf(userSigner.address);
     const balBI = BigInt(bal.toString());
     if (balBI < delta) {
@@ -350,7 +350,7 @@ async function getEip712DomainSafe(token) {
     it("Should initialize correctly", async function () {
       const { token } = await loadFixture(deployFixture);
       expect(await token.name()).to.equal("GemStep");
-      expect(await token.symbol()).to.equal("GSTEP");
+      expect(await token.symbol()).to.equal("GEMS");
       expect(await token.decimals()).to.equal(18);
     });
 

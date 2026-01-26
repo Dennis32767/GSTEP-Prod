@@ -8,7 +8,6 @@ import "./token/modules/GS_AnomalyAndFraud.sol";
 import "./token/modules/GS_MintingAndSupply.sol";
 import "./token/modules/GS_EmergencyAndL2.sol";
 import "./token/modules/GS_ReadersMinimal.sol";
-import "./token/modules/GS_TestHooks.sol";
 
 /// @title GemStepToken
 /// @notice Concrete GemStep token implementation composed from modular mixins.
@@ -22,7 +21,7 @@ import "./token/modules/GS_TestHooks.sol";
 ///  - {GemStepCore} (inherited by modules): OZ upgradeable wiring, initializer, pause transfer gate, halving/month helpers.
 ///  - {GS_Admin}: version/source/signers/oracle/treasury/admin wiring.
 ///  - {GS_StepsAndVerification}: step logging entrypoint + proof/attestation/signature verification + replay protection.
-///  - {GS_Staking}: GSTEP token-staking (lock/unlock) + stake-based reward-split discount hooks.
+///  - {GS_Staking}: GEMS token-staking (lock/unlock) + stake-based reward-split discount hooks.
 ///  - {GS_AnomalyAndFraud}: daily caps, min-interval enforcement, anomaly penalties/suspension, EMA tracking.
 ///  - {GS_MintingAndSupply}: net mint under global+monthly caps with reward split (user/treasury/burn).
 ///  - {GS_EmergencyAndL2}: emergency withdrawals and Arbitrum L1<->L2 governance utilities.
@@ -38,8 +37,7 @@ contract GemStepToken is
     GS_AnomalyAndFraud,
     GS_MintingAndSupply,
     GS_EmergencyAndL2,
-    GS_ReadersMinimal,
-    GS_TestHooks
+    GS_ReadersMinimal
 {
     /* =============================================================
                           OVERRIDE RESOLUTION

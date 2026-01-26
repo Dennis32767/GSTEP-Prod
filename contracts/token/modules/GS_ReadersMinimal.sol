@@ -252,7 +252,7 @@ abstract contract GS_ReadersMinimal is GemStepCore, IGemStepTokenRead {
     /* ============================== Contract Staking State ============================== */
 
     /// @notice Returns contract-level staking totals used for emergency-withdraw safety.
-    /// @dev All values are in GSTEP token units (18 decimals).
+    /// @dev All values are in GEMS token units (18 decimals).
     /// - `contractBal`   = balanceOf(address(this))
     /// - `totalStaked_`  = sum of all user stake balances tracked by the staking module
     /// - `freeBal`       = tokens not reserved for staking (withdrawable via emergency withdraw)

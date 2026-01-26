@@ -187,7 +187,7 @@ async function minStepsForReward(token) {
 }
 
 /* =====================================================================
-   ✅ STAKING HELPERS (TOKEN STAKE = GSTEP)
+   ✅ STAKING HELPERS (TOKEN STAKE = GEMS)
    ===================================================================== */
 
 async function getStakeBalance(token, userAddr) {
@@ -213,7 +213,7 @@ async function getStakeBalance(token, userAddr) {
 }
 
 /**
- * Ensure user has staked at least `requiredStake` GSTEP.
+ * Ensure user has staked at least `requiredStake` GEMS.
  * funder should be treasury (holds initial supply).
  */
 async function ensureTokenStake(token, funder, userSigner, requiredStake) {
@@ -248,7 +248,7 @@ async function getStakePerStepGateSafe(token) {
   // Last resort: use currentStakePerStep if exposed (less correct, but prevents hangs).
   if (typeof token.currentStakePerStep === "function") return toBI(await token.currentStakePerStep());
 
-  // As a last-last resort, assume the policy constant you posted (0.01 GSTEP/step)
+  // As a last-last resort, assume the policy constant you posted (0.01 GEMS/step)
   return 10_000_000_000_000_000n; // 1e16
 }
 
@@ -491,7 +491,7 @@ return {
     if (steps < floor) steps = floor;
 
     // ✅ do NOT stake enough (small stake) — token staking, not ETH staking
-    // Give user tiny amount of GSTEP then stake tiny amount.
+    // Give user tiny amount of GEMS then stake tiny amount.
     const tiny = ethers.parseEther("0.00000001");
     // If they have 0 balance, the transfer may revert; so check and only transfer if needed:
     // (We don't have funder here; easiest: just don't stake at all.)

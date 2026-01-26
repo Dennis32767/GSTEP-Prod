@@ -374,7 +374,7 @@ describe("GemStepToken Upgrade Tests (Option A: upgradeAndCall)", function () {
 
   // ERC20 invariants
   expect(await v2.name()).to.equal("GemStep");
-  expect(await v2.symbol()).to.equal("GSTEP");
+  expect(await v2.symbol()).to.equal("GEMS");
   expect(await v2.decimals()).to.equal(18);
   expect(await v2.totalSupply()).to.equal(totalSupplyBefore);
 

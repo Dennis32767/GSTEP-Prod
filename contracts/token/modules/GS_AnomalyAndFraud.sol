@@ -7,10 +7,10 @@ import "../core/GemStepCore.sol";
 /// @notice Fraud-prevention module for step submissions (NO SLASHING / NO PENALTIES).
 /// @dev
 ///  UPDATED BEHAVIOR (per your latest rules):
-///   - Stake asset is GSTEP (token units, 18 decimals).
+///   - Stake asset is GEMS (token units, 18 decimals).
 ///   - For NON-trusted callers (user-path):
 ///        1) Enforce min-interval + daily cap
-///        2) Require stake >= steps * MIN_STAKE_PER_STEP  (MIN_STAKE_PER_STEP is GSTEP-per-step)
+///        2) Require stake >= steps * MIN_STAKE_PER_STEP  (MIN_STAKE_PER_STEP is GEMS-per-step)
 ///        3) Allow only the first {anomalyThreshold} successful NON-API submissions per user
 ///           After that: revert "GS: trusted API caller/relayer required" (so no more minting without trusted API caller).
 ///   - Trusted API callers are exempt from onboarding cap and stake requirement.
@@ -44,7 +44,7 @@ abstract contract GS_AnomalyAndFraud is GemStepCore {
             require(nonApiSubmissionCount[user] < anomalyThreshold, "GS: trusted API caller/relayer required");
 
             // During onboarding, require minimum stake (token-denominated, 18 decimals).
-            // IMPORTANT: MIN_STAKE_PER_STEP must be defined as GSTEP-per-step (not wei).
+            // IMPORTANT: MIN_STAKE_PER_STEP must be defined as GEMS-per-step (not wei).
             uint256 requiredStake = steps * MIN_STAKE_PER_STEP;
             require(stakeBalance[user] >= requiredStake, "Insufficient stake");
         }

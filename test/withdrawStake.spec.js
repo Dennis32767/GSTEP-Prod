@@ -10,7 +10,7 @@ const { loadFixture, time } = require("@nomicfoundation/hardhat-network-helpers"
  * - Your staking is ERC20 staking: stake(uint256) and withdrawStake(uint256)
  * - NOT payable ETH staking.
  * - So tests must:
- *    1) give user GSTEP
+ *    1) give user GEMS
  *    2) user approves token contract
  *    3) user calls stake(amount)
  *    4) user calls withdrawStake(amount)
@@ -39,7 +39,7 @@ async function deployFixture() {
   );
   await token.waitForDeployment();
 
-  // Prefund user with GSTEP from treasury (treasury holds initial supply)
+  // Prefund user with GEMS from treasury (treasury holds initial supply)
   const fund = ethers.parseUnits("1000", 18);
   await token.connect(treasury).transfer(user.address, fund);
 

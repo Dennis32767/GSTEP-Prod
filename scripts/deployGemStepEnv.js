@@ -589,9 +589,9 @@ async function deployToken(networkConfig, deployer, oracleAddress, adminAddress,
   console.log(chalk.green(`✅ Token proxy: ${proxy}`));
   console.log(chalk.gray(`impl       : ${impl}`));
   console.log(chalk.gray(`treasury   : ${treasury}`));
-  console.log(chalk.gray(`supply     : ${totalSupply != null ? `${formatUnits(totalSupply)} GSTEP` : "(n/a)"}`));
-  console.log(chalk.gray(`cap        : ${cap != null ? `${formatUnits(cap)} GSTEP` : "(n/a)"}`));
-  console.log(chalk.gray(`rewardRate : ${rewardPerStep != null ? `${formatUnits(rewardPerStep)} GSTEP/step` : "(n/a)"}`));
+  console.log(chalk.gray(`supply     : ${totalSupply != null ? `${formatUnits(totalSupply)} GEMS` : "(n/a)"}`));
+  console.log(chalk.gray(`cap        : ${cap != null ? `${formatUnits(cap)} GEMS` : "(n/a)"}`));
+  console.log(chalk.gray(`rewardRate : ${rewardPerStep != null ? `${formatUnits(rewardPerStep)} GEMS/step` : "(n/a)"}`));
 
   return token;
 }

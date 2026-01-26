@@ -183,14 +183,14 @@ async function ensureStakeForSteps(token, funderSigner, userSigner, stepsBI, hea
 
   const delta = required - before;
 
-  // fund user with liquid GSTEP (token-stake path needs balance)
+  // fund user with liquid GEMS (token-stake path needs balance)
   const bal = toBI(await token.balanceOf(userAddr));
   if (bal < delta) {
     const funderAddr = funderSigner.address ?? (await funderSigner.getAddress());
     const funderBal = toBI(await token.balanceOf(funderAddr));
     if (funderBal < (delta - bal)) {
       throw new Error(
-        `ensureStakeForSteps: funder has insufficient GSTEP (need ${(delta - bal).toString()}, have ${funderBal.toString()})`
+        `ensureStakeForSteps: funder has insufficient GEMS (need ${(delta - bal).toString()}, have ${funderBal.toString()})`
       );
     }
     await (await token.connect(funderSigner).transfer(userAddr, delta - bal)).wait();
@@ -543,10 +543,10 @@ async function submitSteps(token, submitter, steps, options = {}) {
     proof = [],
     attestation = "0x",
     isApiSigned = false,
-    funder, // ✅ required for GSTEP token-stake funding
+    funder, // ✅ required for GEMS token-stake funding
   } = options;
 
-  // --- GSTEP token staking for user path only ---
+  // --- GEMS token staking for user path only ---
 if (!isApiSigned && withStake !== false) {
   const stakePerStep = await currentStakePerStepCompat(token);
 
@@ -564,7 +564,7 @@ if (!isApiSigned && withStake !== false) {
       const balBI = BigInt(bal.toString());
 
       if (balBI < needToken) {
-        if (!funder) throw new Error("submitSteps requires options.funder for GSTEP staking");
+        if (!funder) throw new Error("submitSteps requires options.funder for GEMS staking");
         const delta = needToken - balBI;
         await (await token.connect(funder).transfer(submitter.address, delta)).wait();
       }
@@ -1588,10 +1588,10 @@ describe("GemStepToken Extended Tests", function () {
 });
 
 describe("Dynamic Staking (Token Lock + Split Discount)", function () {
-  it("stakes GSTEP: moves tokens into contract + updates stakeBalance/start", async function () {
+  it("stakes GEMS: moves tokens into contract + updates stakeBalance/start", async function () {
     const { token, user1, funder } = await loadFixture(deployExtendedGemStepFixture);
 
-    // fund user1 with GSTEP
+    // fund user1 with GEMS
     const amt = ethers.parseEther("1000");
     await (await token.connect(funder).transfer(user1.address, amt)).wait();
 

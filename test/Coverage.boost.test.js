@@ -70,7 +70,7 @@ try {
       token,
       proxyToken: token,
       gemstep: token,
-      gstep: token,
+      gems: token,
       admin,
       deployer,
       treasury,
@@ -134,7 +134,7 @@ async function smartDeploy(Factory) {
 describe("Coverage Boost (one-file pack)", function () {
   it("sanity: fixture deploys (at least token)", async function () {
     const fx = await loadFixture(deployGemStepFixture);
-    const token = pick(fx, ["token", "gemstep", "gstep", "proxyToken"]);
+    const token = pick(fx, ["token", "gemstep", "gems", "proxyToken"]);
     expect(token, "token missing from fixture").to.be.ok;
   });
 
@@ -151,7 +151,7 @@ describe("Coverage Boost (one-file pack)", function () {
       if (!admin) return this.skip();
 
       const fx = await loadFixture(deployGemStepFixture);
-      const token = pick(fx, ["token", "gemstep", "gstep", "proxyToken"]);
+      const token = pick(fx, ["token", "gemstep", "gems", "proxyToken"]);
       if (!token) return this.skip();
 
       if (hasFn(admin, "getProxyImplementation")) {
@@ -278,7 +278,7 @@ describe("Coverage Boost (one-file pack)", function () {
       let tokenAddr = ethers.ZeroAddress;
       try {
         const fx = await loadFixture(deployGemStepFixture);
-        const token = pick(fx, ["token", "proxyToken", "gemstep", "gstep"]);
+        const token = pick(fx, ["token", "proxyToken", "gemstep", "gems"]);
         if (token?.getAddress) tokenAddr = await token.getAddress();
       } catch {}
 
@@ -306,7 +306,7 @@ describe("Coverage Boost (one-file pack)", function () {
   describe("GS_Admin role gates & events (generic)", function () {
     it("PARAMETER_ADMIN (or appropriate role) can set params; non-admin reverts", async function () {
   const fx = await loadFixture(deployGemStepFixture);
-  const token = pick(fx, ["token", "gemstep", "gstep", "proxyToken"]);
+  const token = pick(fx, ["token", "gemstep", "gems", "proxyToken"]);
   const admin = pick(fx, ["parameterAdmin", "paramsAdmin", "admin"]);
   if (!token || !admin) return this.skip();
 
@@ -336,7 +336,7 @@ describe("Coverage Boost (one-file pack)", function () {
 
     it("pauser can pause/unpause; others revert", async function () {
       const fx = await loadFixture(deployGemStepFixture);
-      const token = pick(fx, ["token", "gemstep", "gstep", "proxyToken"]);
+      const token = pick(fx, ["token", "gemstep", "gems", "proxyToken"]);
       const pauser = pick(fx, ["pauser", "pauseAdmin", "admin"]);
       if (!token || !pauser || !hasFn(token, "pause") || !hasFn(token, "unpause")) return this.skip();
 
@@ -351,7 +351,7 @@ describe("Coverage Boost (one-file pack)", function () {
   describe("GS_EmergencyAndL2 extra branches", function () {
     it("recipient approval toggles and emergency withdraw zero/insufficient", async function () {
       const fx = await loadFixture(deployGemStepFixture);
-      const token = pick(fx, ["token", "gemstep", "gstep", "proxyToken"]);
+      const token = pick(fx, ["token", "gemstep", "gems", "proxyToken"]);
       const admin = pick(fx, ["emergencyAdmin", "admin"]);
       if (!token || !admin) return this.skip();
 
@@ -373,7 +373,7 @@ describe("Coverage Boost (one-file pack)", function () {
   describe("GS_Views cheap wins", function () {
     it("systemSnapshot & basic aggregates don’t revert", async function () {
       const fx = await loadFixture(deployGemStepFixture);
-      const token = pick(fx, ["token", "gemstep", "gstep", "proxyToken"]);
+      const token = pick(fx, ["token", "gemstep", "gems", "proxyToken"]);
       if (!token) return this.skip();
 
       if (hasFn(token, "systemSnapshot")) {
@@ -392,7 +392,7 @@ describe("Coverage Boost (one-file pack)", function () {
   describe("Core initializer guards", function () {
     it("prevents re-initialization via initializeV2 (if present)", async function () {
       const fx = await loadFixture(deployGemStepFixture);
-      const token = pick(fx, ["token", "gemstep", "gstep", "proxyToken"]);
+      const token = pick(fx, ["token", "gemstep", "gems", "proxyToken"]);
       if (!token || !hasFn(token, "initializeV2")) return this.skip();
       await expect(token.initializeV2()).to.be.reverted;
     });
@@ -401,7 +401,7 @@ describe("Coverage Boost (one-file pack)", function () {
   describe("Token receive/fallback (if implemented)", function () {
     it("accepts plain ETH or reverts consistently", async function () {
       const fx = await loadFixture(deployGemStepFixture);
-      const token = pick(fx, ["token", "gemstep", "gstep", "proxyToken"]);
+      const token = pick(fx, ["token", "gemstep", "gems", "proxyToken"]);
       if (!token) return this.skip();
 
       const addr = await asAddress(token);
@@ -431,7 +431,7 @@ describe("Coverage Boost (one-file pack)", function () {
       await pa.waitForDeployment();
 
       const fx = await loadFixture(deployGemStepFixture);
-      const token = pick(fx, ["token", "gemstep", "gstep", "proxyToken"]);
+      const token = pick(fx, ["token", "gemstep", "gems", "proxyToken"]);
       if (!token) return this.skip();
 
       const tokenAddr = await token.getAddress();
@@ -451,7 +451,7 @@ describe("Coverage Boost (one-file pack)", function () {
   describe("GS_Views extra sweep", function () {
     it("basic views do not revert and return sane types", async function () {
       const fx = await loadFixture(deployGemStepFixture);
-      const token = fx.token || fx.gemstep || fx.gstep;
+      const token = fx.token || fx.gemstep || fx.gems;
       if (!token) return this.skip();
 
       const soft = async (p) => {

@@ -39,7 +39,7 @@ async function main() {
       console.log(`   Name: ${nameResult}`);
       console.log(`   Symbol: ${symbol}`);
       console.log(`   Total Supply: ${ethers.formatEther(supply)}`);
-      console.log(`   ✅ This is your GSTEP token!`);
+      console.log(`   ✅ This is your GEMS token!`);
       return;
     } catch (e) {
       console.log(`   ❌ Not a token: ${e.message}`);

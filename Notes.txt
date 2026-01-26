@@ -44,7 +44,7 @@ npx hardhat test test/GemStepToken.Extendedtest.js
 npx hardhat test test/GemStepToken.upgrade.staking.test.js
 npx hardhat test test/Upgrade.flow.test.js
 npx hardhat test test/Upgrade.flow.optionA.test.js
-npx hardhat test test/GSTEP.anomaly.spec.js
+npx hardhat test test/GEMS.anomaly.spec.js
 npx hardhat test test/GemStepToken.recommended.spec.js
 npx hardhat test test/GemStepToken.Extendedtest.js
 -------------------------------------------------------------------
@@ -69,7 +69,7 @@ npx hardhat test test/GemStepToken.Extendedtest.js --network localhost
 npx hardhat test test/GemStepToken.upgrade.staking.test.js --network localhost
 npx hardhat test test/Upgrade.flow.test.js --network localhost
 npx hardhat test test/Upgrade.flow.optionA.test.js --network localhost
-npx hardhat test test/GSTEP.anomaly.spec.js --network localhost
+npx hardhat test test/GEMS.anomaly.spec.js --network localhost
 npx hardhat test test/GemStepToken.recommended.spec.js --network localhost
 
 ==================================================================================

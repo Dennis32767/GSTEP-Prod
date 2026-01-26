@@ -13,7 +13,7 @@ async function main() {
   console.log("MockOracleV2 deployed at:", mock.target);
 
   // 2) Seed price + freshness policy
-  // Example: 1 GSTEP = 0.005 ETH, confidence = 0 (ignored), staleness = 300s, minConfBps = 100 (±1%)
+  // Example: 1 GEMS = 0.005 ETH, confidence = 0 (ignored), staleness = 300s, minConfBps = 100 (±1%)
   const { timestamp } = await ethers.provider.getBlock("latest");
   await mock.set(ethers.parseEther("0.005"), timestamp, 0); // priceWei, updatedAt, confidenceBps
   await mock.setPolicy(300, 100);                           // maxStalenessSec, minConfidenceBps

@@ -150,7 +150,7 @@ abstract contract GemStepCore is
         require(INITIAL_SUPPLY <= MAX_SUPPLY, "Initial supply exceeds max");
 
         /* ------------------------- OZ initializers ------------------------- */
-        __ERC20_init("GemStep", "GSTEP");
+        __ERC20_init("GemStep", "GEMS");
         __Pausable_init();
         __AccessControl_init();
         __ReentrancyGuard_init();
@@ -167,7 +167,7 @@ abstract contract GemStepCore is
         treasury = _treasury;
 
         /* ------------------- Staking defaults (token units) ---------------- */
-        // currentStakePerStep is denominated in GSTEP token units (18 decimals).
+        // currentStakePerStep is denominated in GEMS token units (18 decimals).
         currentStakePerStep = MIN_STAKE_PER_STEP;
         stakeParamsLocked = false;
 
