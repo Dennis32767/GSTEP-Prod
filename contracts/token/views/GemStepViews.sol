@@ -14,6 +14,10 @@ import "../interfaces/IGemStepTokenRead.sol";
 ///  - GemStepViews reads token-exposed bundles and exposes derived read-only helpers.
 ///  - Post-launch parameter changes do not require view updates unless the semantic meaning or aggregation logic changes.
 ///
+///  VERSIONED ADAPTER WARNING:
+///  - This contract mirrors select policy constants for UI convenience.
+///  - If GemStepStorage constants change in a new deployment, you MUST redeploy this helper.
+///  - To prevent silent mismatches, this contract exposes VIEWS_CONFIG_HASH and viewsConfigHashBound().
 contract GemStepViews {
     /// @notice The token instance this view helper reads from.
     IGemStepTokenRead public immutable token;
@@ -89,46 +93,66 @@ contract GemStepViews {
     uint256 internal constant MAX_STAKE_PER_STEP = 5e16; // 0.05 GEMS/step
     uint256 internal constant STAKE_ADJUST_COOLDOWN = 1 days;
 
-    /* ========================= STAKING / SPLIT POLICY CONSTANTS =========================
-       @dev Mirrored from GemStepStorage. UI convenience only (PURE reads).
+    /* ========================= Policy Bundles =========================
+       @dev Staking/split policy constants are exposed by the token via getStakePolicy().
+            Do NOT mirror them here (reduces drift risk).
     */
 
-    /// @dev Must match GemStepStorage.STAKE_MIN_AGE
-    uint256 internal constant STAKE_MIN_AGE = 7 days;
+    /*──────────────────────── CONFIG FINGERPRINT (VERSIONED ADAPTER) ──────────────────────*/
+/// @dev v2 because we changed how the hash is computed (chunked to avoid stack-too-deep under coverage).
+bytes32 internal constant VIEWS_SCHEMA = keccak256("GemStepViews:v2");
 
-    /// @dev Must match GemStepStorage.STAKE_MAX_AGE
-    uint256 internal constant STAKE_MAX_AGE = 180 days;
+/// @notice Fingerprint of this Views build’s mirrored constants.
+/// @dev Coverage-safe: chunk the encoding to avoid stack-too-deep (coverage disables viaIR).
+function viewsConfigHash() public pure returns (bytes32) {
+    bytes32 h1 = keccak256(
+        abi.encode(
+            uint256(DECIMALS),
+            MAX_SUPPLY,
+            BPS_BASE,
+            REWARD_USER_BPS,
+            MIN_STEPS,
+            SECONDS_PER_MONTH,
+            INITIAL_SUPPLY,
+            REWARD_RATE_BASE,
+            MAX_REWARD_RATE,
+            PERCENTAGE_BASE,
+            DEFAULT_SIGNATURE_VALIDITY
+        )
+    );
 
-    /// @dev Must match GemStepStorage.STAKE_MAX_CUT_DISCOUNT_BPS
-    uint256 internal constant STAKE_MAX_CUT_DISCOUNT_BPS = 1_200;
+    bytes32 h2 = keccak256(
+        abi.encode(
+            MAX_SIGNATURE_VALIDITY,
+            MIN_BURN_AMOUNT,
+            ANOMALY_THRESHOLD,
+            MIN_AVERAGE_FOR_ANOMALY,
+            GRACE_PERIOD,
+            MAX_PROOF_LENGTH,
+            MAX_VERSION_LENGTH,
+            TARGET_STAKE_PERCENT,
+            MONTHLY_MINT_LIMIT,
+            MIN_STAKE_PER_STEP,
+            MAX_STAKE_PER_STEP,
+            STAKE_ADJUST_COOLDOWN
+        )
+    );
 
-    /// @dev Must match GemStepStorage.STAKE_MIN_CUT_BPS
-    uint256 internal constant STAKE_MIN_CUT_BPS = 800;
+    return keccak256(abi.encode(VIEWS_SCHEMA, h1, h2));
+}
 
-    /// @dev Must match GemStepStorage.STAKE_TIER1
-    uint256 internal constant STAKE_TIER1 = 10_000 * 1e18;
+/// @notice Strong pairing hash that binds this views instance to a specific token address.
+function viewsConfigHashBound() external view returns (bytes32) {
+    return keccak256(abi.encode(VIEWS_SCHEMA, address(token), viewsConfigHash()));
+}
 
-    /// @dev Must match GemStepStorage.STAKE_TIER2
-    uint256 internal constant STAKE_TIER2 = 50_000 * 1e18;
+/// @notice Create a new read helper pointed at an already-deployed token.
+/// @param token_ Deployed GemStepToken proxy address.
+constructor(address token_) {
+    require(token_ != address(0), "Token addr=0");
+    token = IGemStepTokenRead(token_);
+}
 
-    /// @dev Must match GemStepStorage.STAKE_TIER3
-    uint256 internal constant STAKE_TIER3 = 200_000 * 1e18;
-
-    /// @dev Must match GemStepStorage.STAKE_D1
-    uint256 internal constant STAKE_D1 = 200; // 2.00%
-
-    /// @dev Must match GemStepStorage.STAKE_D2
-    uint256 internal constant STAKE_D2 = 500; // 5.00%
-
-    /// @dev Must match GemStepStorage.STAKE_D3
-    uint256 internal constant STAKE_D3 = 900; // 9.00%
-
-    /// @notice Create a new read helper pointed at an already-deployed token.
-    /// @param token_ Deployed GemStepToken proxy address.
-    constructor(address token_) {
-        require(token_ != address(0), "Token addr=0");
-        token = IGemStepTokenRead(token_);
-    }
 
     /*────────────────────────────── HALVING / MONTH ─────────────────────────────*/
 
@@ -272,10 +296,10 @@ contract GemStepViews {
         return (MIN_STAKE_PER_STEP, MAX_STAKE_PER_STEP, STAKE_ADJUST_COOLDOWN);
     }
 
-        /* ============================== Policy Bundles ============================== */
+    /* ============================== Policy Bundles ============================== */
 
     /// @notice Returns staking discount policy constants (UI convenience).
-    /// @dev Calls the token’s bundled read. Requires IGemStepTokenRead to include getStakePolicy().
+    /// @dev Calls the token’s bundled read (pure bundle in GS_ReadersMinimal).
     function getStakePolicy()
         external
         view

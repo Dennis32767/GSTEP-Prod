@@ -137,7 +137,7 @@ https://sepolia.etherscan.io/address/0x7B69f4651Bf0A79793E87302Dc06CC9836caE623
 - deployMockOracle
 npx hardhat run scripts/deployMockOracleV2.js --network arbitrumSepolia
 Deployer:0x873693a93c10D74ef3AB824A548a8c8C2dbd1391 
-ARBITRUM_SEPOLIA_ORACLE_ADDRESS=0x097BBBF21404E4F62e94e9380d083586D4cc91A2
+ARBITRUM_SEPOLIA_ORACLE_ADDRESS=0xd3178ab0DDe67B2239FBd750D600dFaa83792A2D
 ------------------------------
 - deployGemStep
 npx hardhat run scripts/deployGemStepEnv.js --network arbitrumSepolia
@@ -162,11 +162,11 @@ execute(id),
 wait minDelay,
 repeat for executeCalldata.
 -------------------------------
-View Contracts on Sepolia Etherscan:
-Timelock: https://sepolia.arbiscan.io/address/0xCf5A28323f1d5256F5e728816726B8Ae27Ec9CfA
-MiniMultisig: https://sepolia.arbiscan.io/address/0x9Ebff62bE20B6cC08b98167d9fC1fD7d081BDbB1
+View Contracts on Sepolia.Arbisacn Etherscan:
+Timelock: https://sepolia.arbiscan.io/address/0xBc102B6670d7BBcF9bd1D42ceE5163798c1Eb304
+MiniMultisig: https://sepolia.arbiscan.io/address/0xcF9B3C8d903bD04d9c5Ff1cb791821AaBe670e76
 UpgradeExecutor: https://sepolia.arbiscan.io/address/0x8edbd626eB6b2B5636c8D0C57Ea5Ec483266C0DA
-GemStep Token: https://sepolia.arbiscan.io/token/0x58cc6b3B62aA0F31934e93473fA422154a2B5EbE
+GemStep Token: https://sepolia.arbiscan.io/token/0x00e67e48420D167451c660c8eA1501C2F085182F
 -------------------------------
 
 #Phase 3 — Test Cross-Chain Functionality (Sepolia + Arbitrum Sepolia)
@@ -178,11 +178,11 @@ Copy the printed governance address → put it into .env as L1_GOVERNANCE_ADDR=.
 Deployer: 0x06811F679D39537679060e82338f4BB508fF6bd5
 Owner   : 0x06811F679D39537679060e82338f4BB508fF6bd5
 Inbox   : 0xaAe29B0366299461418F5324a79Afc425BE5ae21
-L2Target: 0x58cc6b3B62aA0F31934e93473fA422154a2B5EbE
-RefundL2: 0x2563c6f49e263e9F4DdB4499b134D7A19E47396b
-Deployed CrossChainGovernanceL1 at: 0xb2CBbe011E088dcBb20E21d67875f2A1d697348e
+L2Target: 0x00e67e48420D167451c660c8eA1501C2F085182F
+RefundL2: 0xb2Ab3889B273604ad7B9FbBA7Bc74667D75f1d4e
+Deployed CrossChainGovernanceL1 at: 0xB9b51a080684a472ce6419d140d69D6EF72f29FE
 
-https://sepolia.etherscan.io/address/0xb2CBbe011E088dcBb20E21d67875f2A1d697348e
+https://sepolia.etherscan.io/address/0xB9b51a080684a472ce6419d140d69D6EF72f29FE
 
 -------------------------------
  
@@ -201,7 +201,10 @@ node scripts/link_l2_set_governor.js --file deployments/arbitrumSepolia-latest.j
 # Deployer L1 Timelocker for governance
 Step 1: Deploy Timelock
 npx hardhat run scripts/l1_deploy_timelock_manual.js --network sepolia
-L1_TIMELOCK=0xeBD30F269c0Fb636017c1C793A6dE22086c1A119
+L1_TIMELOCK=0x72ae1F5E9cFEF2BE83947a0b5600Eeb745Cf20cd
+
+node scripts/grantRole.toTimelock.viaMini.node.js --file deployments/arbitrumSepolia-latest.json --token 0x00 --timelock 0xB --mini 0xc
+
 
 Step 2: Transfer Ownership
 node scripts/l1_transfer_governance_to_timelock.js
@@ -214,7 +217,7 @@ node scripts/l1_check_timelock_operations.js (insert correct const operationId)
 Step 4: Complete Transfer
 schedule execute script that respects the 1-hour delay
 node scripts/l1_timelock_execute_transfer.js - (insert const operationId = "0x"; const CORRECT_SALT = "0x")
-These can be found via node script/find_correct_salt.js - (insert const SCHEDULE_TX_HASH = "0x")
+These can be found via node scripts/find_correct_salt.js - (insert const SCHEDULE_TX_HASH = "0x")
 --------------------------------
 
 ------------------------------
@@ -223,13 +226,19 @@ These can be found via node script/find_correct_salt.js - (insert const SCHEDULE
 node scripts/verify_params.js
 
 # Emergency parameters Update
-node scripts/governance_schedule_update.js 10000 1000000000000000000
+node scripts/governance_schedule_update.js 8000 5000000000000000
 📋 NEXT STEP (after 1hr delay elapses):
-  node scripts/governance_execute_update.js 0x... 0x... 5000 1000000000000000000
+  node scripts/governance_execute_update.js <opId> <salt> 8000 5000000000000000
+
+# Emergency parameters revert to Baseline
+node scripts/governance_schedule_update.js 10000 1000000000000000
+📋 NEXT STEP (after 1hr delay elapses):
+node scripts/governance_execute_update.js <opId2> <salt2> 10000 1000000000000000
+
 -------------------------------
 
 -------------------------------
-- Test L1 → L2 pause/unpause (from Sepolia)
+- Test L1 → L2 Contract pause/unpause (from Sepolia)
 
 # Pause L2
 node scripts/tl_pause_schedule.js --on  - # schedule PAUSE
@@ -245,9 +254,31 @@ NB. 10 min delay.........
 Check on Arbiscan (Arb Sepolia) that the retryable redeemed and the L2 contract paused (your event L2PausedByL1 / Paused).
 --------------------------------
 
+-------------------------------
+
+- Test L1 → L2 Staking pause/unpause (from Sepolia)
+
+# Staking Pause L2
+node scripts/tl_stakingpause_schedule.js --on
+node scripts/tl_stakingpause_execute.js <operationId> <salt> --on
+NB. 10 min delay.........
+
+or
+node scripts/tl_stakingpause_schedule.js --off
+node scripts/tl_stakingpause_execute.js <operationId> <salt> --off
+NB. 10 min delay.........
+
+check staking Pause
+node scripts/check_staking_pause.js
+-------------------------------
+
+
+
+
+
 Configure Source: 
 
-Grant Parameter Admin Role to TL - node scripts/grant_param_admin_to_l2_timelock.js
+Grant Parameter Admin Role to TL - node scripts/grant_param_admin_to_l2_timelock.viaMini.node.js --file deployments/arbitrumSepolia-latest.json
 
 Confirgure Source - node scripts/configure_sources_via_l2_timelock.js
 these are the configurations: const SOURCES = [
@@ -263,6 +294,8 @@ these are the configurations: const SOURCES = [
   ["enterprise",      true,  false],
   ["premiumtracker",  true,  true],  // max security: proof + attestation
 ];
+
+node scripts/revoke_param_admin_from_timelock.viaMini.js --file deployments/arbitrumSepolia-latest.json
 
 --------------------------------
 

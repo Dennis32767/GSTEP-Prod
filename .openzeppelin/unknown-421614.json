@@ -25,6 +25,11 @@
       "address": "0x58cc6b3B62aA0F31934e93473fA422154a2B5EbE",
       "txHash": "0xe2a74a2d8b715c99d5d2961fd5b4eb1031204187628b8ce3daed517e70cc75c2",
       "kind": "transparent"
+    },
+    {
+      "address": "0x00e67e48420D167451c660c8eA1501C2F085182F",
+      "txHash": "0x9fa0a4de0bd6a96ae30bac41bc20892c2fa096792cffc208861de7fe9c148a67",
+      "kind": "transparent"
     }
   ],
   "impls": {
@@ -4198,6 +4203,887 @@
               "label": "_roles",
               "type": "t_mapping(t_bytes32,t_struct(RoleData)27_storage)",
               "src": "@openzeppelin\\contracts-upgradeable\\access\\AccessControlUpgradeable.sol:62",
+              "offset": 0,
+              "slot": "0"
+            }
+          ],
+          "erc7201:openzeppelin.storage.ERC20": [
+            {
+              "contract": "ERC20Upgradeable",
+              "label": "_balances",
+              "type": "t_mapping(t_address,t_uint256)",
+              "src": "@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:33",
+              "offset": 0,
+              "slot": "0"
+            },
+            {
+              "contract": "ERC20Upgradeable",
+              "label": "_allowances",
+              "type": "t_mapping(t_address,t_mapping(t_address,t_uint256))",
+              "src": "@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:35",
+              "offset": 0,
+              "slot": "1"
+            },
+            {
+              "contract": "ERC20Upgradeable",
+              "label": "_totalSupply",
+              "type": "t_uint256",
+              "src": "@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:37",
+              "offset": 0,
+              "slot": "2"
+            },
+            {
+              "contract": "ERC20Upgradeable",
+              "label": "_name",
+              "type": "t_string_storage",
+              "src": "@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:39",
+              "offset": 0,
+              "slot": "3"
+            },
+            {
+              "contract": "ERC20Upgradeable",
+              "label": "_symbol",
+              "type": "t_string_storage",
+              "src": "@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:40",
+              "offset": 0,
+              "slot": "4"
+            }
+          ],
+          "erc7201:openzeppelin.storage.Initializable": [
+            {
+              "contract": "Initializable",
+              "label": "_initialized",
+              "type": "t_uint64",
+              "src": "@openzeppelin\\contracts-upgradeable\\proxy\\utils\\Initializable.sol:69",
+              "offset": 0,
+              "slot": "0"
+            },
+            {
+              "contract": "Initializable",
+              "label": "_initializing",
+              "type": "t_bool",
+              "src": "@openzeppelin\\contracts-upgradeable\\proxy\\utils\\Initializable.sol:73",
+              "offset": 8,
+              "slot": "0"
+            }
+          ]
+        }
+      }
+    },
+    "c313995be39ace3258f4646ec049117f280990c7abc946f0312a81b2b31226ea": {
+      "address": "0x5C3c9A4c69D35EBcd190448Db0dc99F7fB1d0dA6",
+      "txHash": "0x9695d43022d82e8cf6e7d83c1bb788ae3d7dcba9b2495cb6d253608a85232409",
+      "layout": {
+        "solcVersion": "0.8.30",
+        "storage": [
+          {
+            "label": "nonApiSubmissionCount",
+            "offset": 0,
+            "slot": "0",
+            "type": "t_mapping(t_address,t_uint256)",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:171"
+          },
+          {
+            "label": "totalStaked",
+            "offset": 0,
+            "slot": "1",
+            "type": "t_uint256",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:183"
+          },
+          {
+            "label": "burnFee",
+            "offset": 0,
+            "slot": "2",
+            "type": "t_uint256",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:216"
+          },
+          {
+            "label": "rewardRate",
+            "offset": 0,
+            "slot": "3",
+            "type": "t_uint256",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:219"
+          },
+          {
+            "label": "stepLimit",
+            "offset": 0,
+            "slot": "4",
+            "type": "t_uint256",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:222"
+          },
+          {
+            "label": "signatureValidityPeriod",
+            "offset": 0,
+            "slot": "5",
+            "type": "t_uint256",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:225"
+          },
+          {
+            "label": "emergencyWithdrawEnabled",
+            "offset": 0,
+            "slot": "6",
+            "type": "t_bool",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:228"
+          },
+          {
+            "label": "emergencyWithdrawUnlockTime",
+            "offset": 0,
+            "slot": "7",
+            "type": "t_uint256",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:231"
+          },
+          {
+            "label": "monthlyMintLimit",
+            "offset": 0,
+            "slot": "8",
+            "type": "t_uint256",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:234"
+          },
+          {
+            "label": "currentMonthMinted",
+            "offset": 0,
+            "slot": "9",
+            "type": "t_uint256",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:237"
+          },
+          {
+            "label": "currentMonth",
+            "offset": 0,
+            "slot": "10",
+            "type": "t_uint256",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:240"
+          },
+          {
+            "label": "lastMonthUpdate",
+            "offset": 0,
+            "slot": "11",
+            "type": "t_uint256",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:243"
+          },
+          {
+            "label": "distributedTotal",
+            "offset": 0,
+            "slot": "12",
+            "type": "t_uint256",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:246"
+          },
+          {
+            "label": "currentMonthlyCap",
+            "offset": 0,
+            "slot": "13",
+            "type": "t_uint256",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:249"
+          },
+          {
+            "label": "halvingCount",
+            "offset": 0,
+            "slot": "14",
+            "type": "t_uint256",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:252"
+          },
+          {
+            "label": "initialAdmin",
+            "offset": 0,
+            "slot": "15",
+            "type": "t_address",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:255"
+          },
+          {
+            "label": "adminRoleTransferred",
+            "offset": 20,
+            "slot": "15",
+            "type": "t_bool",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:258"
+          },
+          {
+            "label": "multisig",
+            "offset": 0,
+            "slot": "16",
+            "type": "t_address",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:261"
+          },
+          {
+            "label": "treasury",
+            "offset": 0,
+            "slot": "17",
+            "type": "t_address",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:264"
+          },
+          {
+            "label": "arbitrumInbox",
+            "offset": 0,
+            "slot": "18",
+            "type": "t_address",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:267"
+          },
+          {
+            "label": "arbMaxGas",
+            "offset": 0,
+            "slot": "19",
+            "type": "t_uint256",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:268"
+          },
+          {
+            "label": "arbGasPriceBid",
+            "offset": 0,
+            "slot": "20",
+            "type": "t_uint256",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:269"
+          },
+          {
+            "label": "arbMaxSubmissionCost",
+            "offset": 0,
+            "slot": "21",
+            "type": "t_uint256",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:270"
+          },
+          {
+            "label": "l1Validator",
+            "offset": 0,
+            "slot": "22",
+            "type": "t_address",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:271"
+          },
+          {
+            "label": "arbEthBridge",
+            "offset": 0,
+            "slot": "23",
+            "type": "t_address_payable",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:272"
+          },
+          {
+            "label": "priceOracle",
+            "offset": 0,
+            "slot": "24",
+            "type": "t_address",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:275"
+          },
+          {
+            "label": "currentStakePerStep",
+            "offset": 0,
+            "slot": "25",
+            "type": "t_uint256",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:278"
+          },
+          {
+            "label": "lastStakeAdjustment",
+            "offset": 0,
+            "slot": "26",
+            "type": "t_uint256",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:281"
+          },
+          {
+            "label": "stakeParamsLocked",
+            "offset": 0,
+            "slot": "27",
+            "type": "t_bool",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:284"
+          },
+          {
+            "label": "stakingPaused",
+            "offset": 1,
+            "slot": "27",
+            "type": "t_bool",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:287"
+          },
+          {
+            "label": "validSources",
+            "offset": 0,
+            "slot": "28",
+            "type": "t_mapping(t_string_memory_ptr,t_bool)",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:294"
+          },
+          {
+            "label": "usedSignatures",
+            "offset": 0,
+            "slot": "29",
+            "type": "t_mapping(t_bytes32,t_bool)",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:297"
+          },
+          {
+            "label": "signatureExpiry",
+            "offset": 0,
+            "slot": "30",
+            "type": "t_mapping(t_bytes32,t_uint256)",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:300"
+          },
+          {
+            "label": "changeTimelocks",
+            "offset": 0,
+            "slot": "31",
+            "type": "t_mapping(t_string_memory_ptr,t_uint256)",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:303"
+          },
+          {
+            "label": "nonces",
+            "offset": 0,
+            "slot": "32",
+            "type": "t_mapping(t_address,t_uint256)",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:306"
+          },
+          {
+            "label": "totalSteps",
+            "offset": 0,
+            "slot": "33",
+            "type": "t_mapping(t_address,t_uint256)",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:309"
+          },
+          {
+            "label": "lastSource",
+            "offset": 0,
+            "slot": "34",
+            "type": "t_mapping(t_address,t_string_storage)",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:312"
+          },
+          {
+            "label": "trustedERC1271Contracts",
+            "offset": 0,
+            "slot": "35",
+            "type": "t_mapping(t_address,t_bool)",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:315"
+          },
+          {
+            "label": "approvedRecipients",
+            "offset": 0,
+            "slot": "36",
+            "type": "t_mapping(t_address,t_bool)",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:318"
+          },
+          {
+            "label": "usedLeaves",
+            "offset": 0,
+            "slot": "37",
+            "type": "t_mapping(t_bytes32,t_bool)",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:321"
+          },
+          {
+            "label": "sourceConfigs",
+            "offset": 0,
+            "slot": "38",
+            "type": "t_mapping(t_string_memory_ptr,t_struct(SourceConfig)24037_storage)",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:334"
+          },
+          {
+            "label": "trustedDevices",
+            "offset": 0,
+            "slot": "39",
+            "type": "t_mapping(t_address,t_bool)",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:337"
+          },
+          {
+            "label": "lastSubmission",
+            "offset": 0,
+            "slot": "40",
+            "type": "t_mapping(t_address,t_mapping(t_string_memory_ptr,t_uint256))",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:340"
+          },
+          {
+            "label": "dailyStepTotal",
+            "offset": 0,
+            "slot": "41",
+            "type": "t_mapping(t_address,t_mapping(t_string_memory_ptr,t_uint256))",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:343"
+          },
+          {
+            "label": "dailyIndex",
+            "offset": 0,
+            "slot": "42",
+            "type": "t_mapping(t_address,t_mapping(t_string_memory_ptr,t_uint256))",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:346"
+          },
+          {
+            "label": "userStepAverage",
+            "offset": 0,
+            "slot": "43",
+            "type": "t_mapping(t_address,t_uint256)",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:349"
+          },
+          {
+            "label": "flaggedSubmissions",
+            "offset": 0,
+            "slot": "44",
+            "type": "t_mapping(t_address,t_uint256)",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:352"
+          },
+          {
+            "label": "suspendedUntil",
+            "offset": 0,
+            "slot": "45",
+            "type": "t_mapping(t_address,t_uint256)",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:355"
+          },
+          {
+            "label": "stakeBalance",
+            "offset": 0,
+            "slot": "46",
+            "type": "t_mapping(t_address,t_uint256)",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:358"
+          },
+          {
+            "label": "stakeStart",
+            "offset": 0,
+            "slot": "47",
+            "type": "t_mapping(t_address,t_uint256)",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:361"
+          },
+          {
+            "label": "isTrustedAPI",
+            "offset": 0,
+            "slot": "48",
+            "type": "t_mapping(t_address,t_bool)",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:364"
+          },
+          {
+            "label": "userFirstSubmission",
+            "offset": 0,
+            "slot": "49",
+            "type": "t_mapping(t_address,t_uint256)",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:367"
+          },
+          {
+            "label": "anomalyThreshold",
+            "offset": 0,
+            "slot": "50",
+            "type": "t_uint256",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:371"
+          },
+          {
+            "label": "supportedAttestationVersions",
+            "offset": 0,
+            "slot": "51",
+            "type": "t_mapping(t_bytes32,t_bool)",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:378"
+          },
+          {
+            "label": "attestationVersionDeprecatesAt",
+            "offset": 0,
+            "slot": "52",
+            "type": "t_mapping(t_bytes32,t_uint256)",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:381"
+          },
+          {
+            "label": "supportedPayloadVersions",
+            "offset": 0,
+            "slot": "53",
+            "type": "t_mapping(t_bytes32,t_bool)",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:384"
+          },
+          {
+            "label": "payloadVersionDeprecatesAt",
+            "offset": 0,
+            "slot": "54",
+            "type": "t_mapping(t_bytes32,t_uint256)",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:387"
+          },
+          {
+            "label": "used1271Digests",
+            "offset": 0,
+            "slot": "55",
+            "type": "t_mapping(t_address,t_mapping(t_bytes32,t_bool))",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:390"
+          },
+          {
+            "label": "l1Governance",
+            "offset": 0,
+            "slot": "56",
+            "type": "t_address",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:500"
+          },
+          {
+            "label": "__gap",
+            "offset": 0,
+            "slot": "57",
+            "type": "t_array(t_uint256)40_storage",
+            "contract": "GemStepStorage",
+            "src": "contracts\\token\\storage\\GemStepStorage.sol:507"
+          }
+        ],
+        "types": {
+          "t_address": {
+            "label": "address",
+            "numberOfBytes": "20"
+          },
+          "t_bool": {
+            "label": "bool",
+            "numberOfBytes": "1"
+          },
+          "t_bytes32": {
+            "label": "bytes32",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_bool)": {
+            "label": "mapping(address => bool)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_mapping(t_address,t_uint256))": {
+            "label": "mapping(address => mapping(address => uint256))",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_uint256)": {
+            "label": "mapping(address => uint256)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_bytes32,t_struct(RoleData)27_storage)": {
+            "label": "mapping(bytes32 => struct AccessControlUpgradeable.RoleData)",
+            "numberOfBytes": "32"
+          },
+          "t_string_storage": {
+            "label": "string",
+            "numberOfBytes": "32"
+          },
+          "t_struct(AccessControlStorage)37_storage": {
+            "label": "struct AccessControlUpgradeable.AccessControlStorage",
+            "members": [
+              {
+                "label": "_roles",
+                "type": "t_mapping(t_bytes32,t_struct(RoleData)27_storage)",
+                "offset": 0,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_struct(EIP712Storage)899_storage": {
+            "label": "struct EIP712Upgradeable.EIP712Storage",
+            "members": [
+              {
+                "label": "_hashedName",
+                "type": "t_bytes32",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "_hashedVersion",
+                "type": "t_bytes32",
+                "offset": 0,
+                "slot": "1"
+              },
+              {
+                "label": "_name",
+                "type": "t_string_storage",
+                "offset": 0,
+                "slot": "2"
+              },
+              {
+                "label": "_version",
+                "type": "t_string_storage",
+                "offset": 0,
+                "slot": "3"
+              }
+            ],
+            "numberOfBytes": "128"
+          },
+          "t_struct(ERC20Storage)262_storage": {
+            "label": "struct ERC20Upgradeable.ERC20Storage",
+            "members": [
+              {
+                "label": "_balances",
+                "type": "t_mapping(t_address,t_uint256)",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "_allowances",
+                "type": "t_mapping(t_address,t_mapping(t_address,t_uint256))",
+                "offset": 0,
+                "slot": "1"
+              },
+              {
+                "label": "_totalSupply",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "2"
+              },
+              {
+                "label": "_name",
+                "type": "t_string_storage",
+                "offset": 0,
+                "slot": "3"
+              },
+              {
+                "label": "_symbol",
+                "type": "t_string_storage",
+                "offset": 0,
+                "slot": "4"
+              }
+            ],
+            "numberOfBytes": "160"
+          },
+          "t_struct(InitializableStorage)163_storage": {
+            "label": "struct Initializable.InitializableStorage",
+            "members": [
+              {
+                "label": "_initialized",
+                "type": "t_uint64",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "_initializing",
+                "type": "t_bool",
+                "offset": 8,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_struct(PausableStorage)542_storage": {
+            "label": "struct PausableUpgradeable.PausableStorage",
+            "members": [
+              {
+                "label": "_paused",
+                "type": "t_bool",
+                "offset": 0,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_struct(ReentrancyGuardStorage)618_storage": {
+            "label": "struct ReentrancyGuardUpgradeable.ReentrancyGuardStorage",
+            "members": [
+              {
+                "label": "_status",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_struct(RoleData)27_storage": {
+            "label": "struct AccessControlUpgradeable.RoleData",
+            "members": [
+              {
+                "label": "hasRole",
+                "type": "t_mapping(t_address,t_bool)",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "adminRole",
+                "type": "t_bytes32",
+                "offset": 0,
+                "slot": "1"
+              }
+            ],
+            "numberOfBytes": "64"
+          },
+          "t_uint256": {
+            "label": "uint256",
+            "numberOfBytes": "32"
+          },
+          "t_uint64": {
+            "label": "uint64",
+            "numberOfBytes": "8"
+          },
+          "t_address_payable": {
+            "label": "address payable",
+            "numberOfBytes": "20"
+          },
+          "t_array(t_uint256)40_storage": {
+            "label": "uint256[40]",
+            "numberOfBytes": "1280"
+          },
+          "t_mapping(t_address,t_mapping(t_bytes32,t_bool))": {
+            "label": "mapping(address => mapping(bytes32 => bool))",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_mapping(t_string_memory_ptr,t_uint256))": {
+            "label": "mapping(address => mapping(string => uint256))",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_string_storage)": {
+            "label": "mapping(address => string)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_bytes32,t_bool)": {
+            "label": "mapping(bytes32 => bool)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_bytes32,t_uint256)": {
+            "label": "mapping(bytes32 => uint256)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_string_memory_ptr,t_bool)": {
+            "label": "mapping(string => bool)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_string_memory_ptr,t_struct(SourceConfig)24037_storage)": {
+            "label": "mapping(string => struct GemStepStorage.SourceConfig)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_string_memory_ptr,t_uint256)": {
+            "label": "mapping(string => uint256)",
+            "numberOfBytes": "32"
+          },
+          "t_string_memory_ptr": {
+            "label": "string",
+            "numberOfBytes": "32"
+          },
+          "t_struct(SourceConfig)24037_storage": {
+            "label": "struct GemStepStorage.SourceConfig",
+            "members": [
+              {
+                "label": "requiresProof",
+                "type": "t_bool",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "requiresAttestation",
+                "type": "t_bool",
+                "offset": 1,
+                "slot": "0"
+              },
+              {
+                "label": "merkleRoot",
+                "type": "t_bytes32",
+                "offset": 0,
+                "slot": "1"
+              },
+              {
+                "label": "maxStepsPerDay",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "2"
+              },
+              {
+                "label": "minInterval",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "3"
+              },
+              {
+                "label": "userNonce",
+                "type": "t_mapping(t_address,t_uint256)",
+                "offset": 0,
+                "slot": "4"
+              }
+            ],
+            "numberOfBytes": "160"
+          }
+        },
+        "namespaces": {
+          "erc7201:openzeppelin.storage.EIP712": [
+            {
+              "contract": "EIP712Upgradeable",
+              "label": "_hashedName",
+              "type": "t_bytes32",
+              "src": "@openzeppelin\\contracts-upgradeable\\utils\\cryptography\\EIP712Upgradeable.sol:38",
+              "offset": 0,
+              "slot": "0"
+            },
+            {
+              "contract": "EIP712Upgradeable",
+              "label": "_hashedVersion",
+              "type": "t_bytes32",
+              "src": "@openzeppelin\\contracts-upgradeable\\utils\\cryptography\\EIP712Upgradeable.sol:40",
+              "offset": 0,
+              "slot": "1"
+            },
+            {
+              "contract": "EIP712Upgradeable",
+              "label": "_name",
+              "type": "t_string_storage",
+              "src": "@openzeppelin\\contracts-upgradeable\\utils\\cryptography\\EIP712Upgradeable.sol:42",
+              "offset": 0,
+              "slot": "2"
+            },
+            {
+              "contract": "EIP712Upgradeable",
+              "label": "_version",
+              "type": "t_string_storage",
+              "src": "@openzeppelin\\contracts-upgradeable\\utils\\cryptography\\EIP712Upgradeable.sol:43",
+              "offset": 0,
+              "slot": "3"
+            }
+          ],
+          "erc7201:openzeppelin.storage.ReentrancyGuard": [
+            {
+              "contract": "ReentrancyGuardUpgradeable",
+              "label": "_status",
+              "type": "t_uint256",
+              "src": "@openzeppelin\\contracts-upgradeable\\utils\\ReentrancyGuardUpgradeable.sol:43",
+              "offset": 0,
+              "slot": "0"
+            }
+          ],
+          "erc7201:openzeppelin.storage.AccessControl": [
+            {
+              "contract": "AccessControlUpgradeable",
+              "label": "_roles",
+              "type": "t_mapping(t_bytes32,t_struct(RoleData)27_storage)",
+              "src": "@openzeppelin\\contracts-upgradeable\\access\\AccessControlUpgradeable.sol:62",
+              "offset": 0,
+              "slot": "0"
+            }
+          ],
+          "erc7201:openzeppelin.storage.Pausable": [
+            {
+              "contract": "PausableUpgradeable",
+              "label": "_paused",
+              "type": "t_bool",
+              "src": "@openzeppelin\\contracts-upgradeable\\utils\\PausableUpgradeable.sol:21",
               "offset": 0,
               "slot": "0"
             }

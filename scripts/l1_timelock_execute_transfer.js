@@ -22,8 +22,8 @@ async function main() {
   ], wallet);
 
   // Exact parameters from scheduling
-  const operationId = "0xaafef8c788db4d6d17bfca087b9e31bceab489f3207b64d640b49b6c8cedb6fa";
-  const CORRECT_SALT = "0x7ad7377d3c2af9b988e051f518957065da879df01791d391ff89cbe9100dc8d2";
+  const operationId = "0xee9627e66c552d9b163c3638b9019bcda178859197ac1449bf18e210c55ad944";
+  const CORRECT_SALT = "0x226fcb7e38f06b5c7a8b6491c06e7999a3594431920adc58aef18cf802241c9b";
   const predecessor = ethers.ZeroHash;
 
   const govInterface = new ethers.Interface(["function acceptOwnership()"]);

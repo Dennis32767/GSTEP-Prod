@@ -86,7 +86,20 @@ contract UpgradeExecutor is Ownable2Step, ReentrancyGuard {
         bytes data
     );
 
+    /// @notice Back-compat event kept for older off-chain listeners.
     event EmergencyCancel(address indexed cancelledImplementation);
+
+    /// @notice Rich cancel event for modern indexers.
+    event UpgradeCancelled(address indexed proxyAdmin, address indexed proxy, address indexed implementation);
+
+    /// @notice Rich cancel event for upgradeAndCall cancellations.
+    event UpgradeCancelledWithData(
+        address indexed proxyAdmin,
+        address indexed proxy,
+        address indexed implementation,
+        bytes data
+    );
+
     event UpgradeDelayChanged(uint256 oldDelay, uint256 newDelay);
 
     /* =============================================================
@@ -120,7 +133,6 @@ contract UpgradeExecutor is Ownable2Step, ReentrancyGuard {
      * @dev No-op if ProxyAdmin is single-step Ownable (no `pendingOwner()`).
      */
     function claimProxyAdminOwnership(address proxyAdmin) external onlyOwner {
-        // If ProxyAdmin is two-step ownable, finalize the transfer
         try ITwoStepOwnable(proxyAdmin).pendingOwner() returns (address p) {
             if (p == address(this)) {
                 ITwoStepOwnable(proxyAdmin).acceptOwnership();
@@ -140,8 +152,11 @@ contract UpgradeExecutor is Ownable2Step, ReentrancyGuard {
         _assertManagedProxy(proxyAdmin, proxy);
         _validateNewImpl(proxyAdmin, proxy, implementation);
 
+        bytes32 key = _key(proxyAdmin, proxy, implementation);
+        require(scheduledUpgrades[key] == 0, "Already scheduled");
+
         uint256 t = block.timestamp + upgradeDelay;
-        scheduledUpgrades[_key(proxyAdmin, proxy, implementation)] = t;
+        scheduledUpgrades[key] = t;
         emit UpgradeScheduled(proxyAdmin, proxy, implementation, t);
     }
 
@@ -156,8 +171,11 @@ contract UpgradeExecutor is Ownable2Step, ReentrancyGuard {
         _assertManagedProxy(proxyAdmin, proxy);
         _validateNewImpl(proxyAdmin, proxy, implementation);
 
+        bytes32 key = _keyWithData(proxyAdmin, proxy, implementation, data);
+        require(scheduledUpgradesWithData[key] == 0, "Already scheduled");
+
         uint256 t = block.timestamp + upgradeDelay;
-        scheduledUpgradesWithData[_keyWithData(proxyAdmin, proxy, implementation, data)] = t;
+        scheduledUpgradesWithData[key] = t;
         emit UpgradeScheduledWithData(proxyAdmin, proxy, implementation, data, t);
     }
 
@@ -172,8 +190,11 @@ contract UpgradeExecutor is Ownable2Step, ReentrancyGuard {
         _assertManagedProxy(proxyAdmin, proxy);
         _validateNewImpl(proxyAdmin, proxy, implementation);
 
+        bytes32 key = _keyWithData(proxyAdmin, proxy, implementation, data);
+        require(scheduledUpgradesWithData[key] == 0, "Already scheduled");
+
         uint256 t = block.timestamp + upgradeDelay;
-        scheduledUpgradesWithData[_keyWithData(proxyAdmin, proxy, implementation, data)] = t;
+        scheduledUpgradesWithData[key] = t;
         emit UpgradeScheduledWithData(proxyAdmin, proxy, implementation, data, t);
     }
 
@@ -182,11 +203,11 @@ contract UpgradeExecutor is Ownable2Step, ReentrancyGuard {
        ============================================================= */
 
     /// @notice Execute a scheduled upgrade without calldata.
-    function executeUpgrade(
-        address proxyAdmin,
-        address proxy,
-        address implementation
-    ) external nonReentrant onlyOwner {
+    function executeUpgrade(address proxyAdmin, address proxy, address implementation)
+        external
+        nonReentrant
+        onlyOwner
+    {
         bytes32 key = _key(proxyAdmin, proxy, implementation);
         uint256 t = scheduledUpgrades[key];
 
@@ -273,7 +294,9 @@ contract UpgradeExecutor is Ownable2Step, ReentrancyGuard {
         bytes32 key = _key(proxyAdmin, proxy, implementation);
         require(scheduledUpgrades[key] > 0, "No upgrade scheduled");
         delete scheduledUpgrades[key];
-        emit EmergencyCancel(implementation);
+
+        emit EmergencyCancel(implementation); // back-compat
+        emit UpgradeCancelled(proxyAdmin, proxy, implementation);
     }
 
     /// @notice Cancel a scheduled upgrade with calldata.
@@ -286,7 +309,9 @@ contract UpgradeExecutor is Ownable2Step, ReentrancyGuard {
         bytes32 key = _keyWithData(proxyAdmin, proxy, implementation, data);
         require(scheduledUpgradesWithData[key] > 0, "No upgrade scheduled");
         delete scheduledUpgradesWithData[key];
-        emit EmergencyCancel(implementation);
+
+        emit EmergencyCancel(implementation); // back-compat
+        emit UpgradeCancelledWithData(proxyAdmin, proxy, implementation, data);
     }
 
     /// @notice Update the upgrade delay.
@@ -337,14 +362,9 @@ contract UpgradeExecutor is Ownable2Step, ReentrancyGuard {
         }
     }
 
-    /// @dev Check that `implementation` is a deployed contract.
-    function _isContract(address a) private view returns (bool) {
-        return a.code.length > 0;
-    }
-
     /// @dev Validate new implementation has code and is not identical to current (when getter exists).
     function _validateNewImpl(address proxyAdmin, address proxy, address implementation) private view {
-        require(_isContract(implementation), "Executor: new impl has no code");
+        require(implementation.code.length > 0, "Executor: new impl has no code");
         try IProxyAdmin(proxyAdmin).getProxyImplementation(proxy) returns (address current) {
             require(current != implementation, "Executor: same implementation");
         } catch {
@@ -411,14 +431,14 @@ contract UpgradeExecutor is Ownable2Step, ReentrancyGuard {
             return "Ownable: caller is not the owner";
         }
 
-        // Error(string) selector
+        // Error(string)
         if (sel == 0x08c379a0) {
-            // Decode revert reason string from Error(string)
+            // Error(string) = selector + abi.encode(string)
+            // Strip selector and decode.
             bytes memory payload = _slice(low, 4, low.length - 4);
-            // If decode fails for any reason, we fall back below (cannot catch in pure Solidity),
-            // but in practice this is safe for well-formed Error(string).
-            string memory reason = abi.decode(payload, (string));
-            return reason;
+            // If payload is malformed, abi.decode will revert; that is acceptable here because
+            // it only runs when selector claims Error(string).
+            return abi.decode(payload, (string));
         }
 
         return withData ? "ProxyAdmin: upgradeAndCall failed" : "ProxyAdmin: upgrade failed";
@@ -439,18 +459,41 @@ contract UpgradeExecutor is Ownable2Step, ReentrancyGuard {
         return string(s);
     }
 
-    /// @dev Slice bytes (memory) into a new bytes array.
+    /// @dev Slice bytes (memory) into a new bytes array (masked final word for exactness).
     function _slice(bytes memory data, uint256 start, uint256 len) private pure returns (bytes memory out) {
         require(data.length >= start + len, "slice_oob");
         out = new bytes(len);
-        // copy 32-byte chunks
+
+        if (len == 0) return out;
+
         assembly {
+            // Pointers
             let src := add(add(data, 0x20), start)
             let dst := add(out, 0x20)
-            for { let i := 0 } lt(i, len) { i := add(i, 0x20) } {
-                mstore(add(dst, i), mload(add(src, i)))
+
+            // Copy full words
+            let fullWords := div(len, 0x20)
+            for { let i := 0 } lt(i, fullWords) { i := add(i, 1) } {
+                mstore(add(dst, mul(i, 0x20)), mload(add(src, mul(i, 0x20))))
             }
-            // fix length already set by new bytes(len)
+
+            // Copy remaining bytes (mask)
+            let rem := mod(len, 0x20)
+            if rem {
+                let srcWord := mload(add(src, mul(fullWords, 0x20)))
+                let dstWord := mload(add(dst, mul(fullWords, 0x20)))
+
+                // mask keeps the first `rem` bytes (from MSB side)
+                // mask = ~((1 << (8*(32-rem))) - 1)
+                let shift := mul(8, sub(0x20, rem))
+                let mask := not(sub(shl(shift, 1), 1))
+
+                // store: keep dstWord for untouched tail, overwrite head with srcWord
+                mstore(
+                    add(dst, mul(fullWords, 0x20)),
+                    or(and(dstWord, not(mask)), and(srcWord, mask))
+                )
+            }
         }
     }
 }

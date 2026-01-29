@@ -9,7 +9,7 @@ async function main() {
   const l1 = new ethers.JsonRpcProvider(L1_RPC);
 
   // The transaction hash from your scheduling
-  const SCHEDULE_TX_HASH = "0x85316377d732802497104723102a15b567e90a3e9356fbe42039ff11be78c081";
+  const SCHEDULE_TX_HASH = "0x401c4f9bb721fbd0c02373810056edbdade05429727ed0f2bcfd8c7cad3041b7";
 
   console.log("=== FINDING CORRECT SALT FROM SCHEDULING TX ===");
   

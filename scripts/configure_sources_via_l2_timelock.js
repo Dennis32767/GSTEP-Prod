@@ -2,6 +2,15 @@
 require("dotenv").config();
 const { ethers } = require("ethers");
 
+/**
+ * Drop-in replacement improvements:
+ * - Fixes MiniMultisig tx id handling (txCount is a counter; propose() already returns the id).
+ * - Uses `callStatic` to get the propose id without guessing.
+ * - Avoids off-by-one / race conditions if multiple proposes happen near the same time.
+ * - Safer waiting loop (has timeout).
+ * - Extra sanity: verify schedule/execute happened at timelock level.
+ */
+
 const TL_ABI = [
   "function PROPOSER_ROLE() view returns (bytes32)",
   "function EXECUTOR_ROLE() view returns (bytes32)",
@@ -9,6 +18,7 @@ const TL_ABI = [
   "function getMinDelay() view returns (uint256)",
   "function hashOperation(address target,uint256 value,bytes data,bytes32 predecessor,bytes32 salt) view returns (bytes32)",
   "function isOperation(bytes32 id) view returns (bool)",
+  "function isOperationPending(bytes32 id) view returns (bool)",
   "function isOperationReady(bytes32 id) view returns (bool)",
   "function isOperationDone(bytes32 id) view returns (bool)",
   "function schedule(address target,uint256 value,bytes data,bytes32 predecessor,bytes32 salt,uint256 delay)",
@@ -46,26 +56,67 @@ async function ethCallFrom(provider, from, to, data) {
 
 // Your canonical source config list
 const SOURCES = [
-  ["basicapp",        false, false], // simple mobile app
-  ["mobileapp",       false, false], // alt basic source
-  ["googlefit",       false, false],
-  ["fitbit",          false, false],
-  ["applehealth",     false, false],
-  ["corporatetracker",false, false],
-  ["medicaldevice",   false, true],  // high-security device, needs attestation
+  ["basicapp", false, false],
+  ["mobileapp", false, false],
+  ["googlefit", false, false],
+  ["fitbit", false, false],
+  ["applehealth", false, false],
+  ["corporatetracker", false, false],
+  ["medicaldevice", false, true],
   ["wearablepremium", false, true],
-  ["fitnessplatform", true,  false], // batch platform, proof only
-  ["enterprise",      true,  false],
-  ["premiumtracker",  true,  true],  // max security: proof + attestation
+  ["fitnessplatform", true, false],
+  ["enterprise", true, false],
+  ["premiumtracker", true, true]
 ];
+
+async function proposeWithId(mini, target, value, data) {
+  // Prefer callStatic to obtain the exact id that propose() will return
+  // (avoids relying on txCount / off-by-one).
+  const id = await mini.propose.staticCall(target, value, data);
+  const tx = await mini.propose(target, value, data);
+  await tx.wait();
+  return { id, txHash: tx.hash };
+}
+
+async function approveIfNeeded(mini, id, ownerAddr, ownerSigner) {
+  const already = await mini.isApproved(id, ownerAddr).catch(() => false);
+  if (already) return false;
+  const tx = await mini.connect(ownerSigner).approve(id);
+  await tx.wait();
+  return true;
+}
+
+async function waitTimelockReady(tl, opId, { pollMs = 2000, timeoutMs = 5 * 60_000 } = {}) {
+  const start = Date.now();
+  process.stdout.write("Waiting for operation to be ready");
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const done = await tl.isOperationDone(opId).catch(() => false);
+    if (done) {
+      console.log("\nℹ️ Operation already done.");
+      return "done";
+    }
+    const ready = await tl.isOperationReady(opId).catch(() => false);
+    if (ready) {
+      console.log("\nReady.");
+      return "ready";
+    }
+    if (Date.now() - start > timeoutMs) {
+      console.log("\n❌ Timed out waiting for timelock readiness.");
+      return "timeout";
+    }
+    process.stdout.write(".");
+    await sleep(pollMs);
+  }
+}
 
 async function main() {
   const L2_RPC = (process.env.ARBITRUM_SEPOLIA_RPC_URL || "").trim();
-  const TL     = (process.env.ARB_SEPOLIA_TIMELOCK || "").trim();
-  const MINI   = (process.env.MINI_MULTISIG || "").trim();
-  const L2TOK  = (process.env.L2_TOKEN_PROXY || "").trim();
-  const PK1    = (process.env.MS_EOA1_PK || "").trim();
-  const PK2    = (process.env.MS_EOA2_PK || "").trim();
+  const TL = (process.env.ARB_SEPOLIA_TIMELOCK || "").trim();
+  const MINI = (process.env.MINI_MULTISIG || "").trim();
+  const L2TOK = (process.env.L2_TOKEN_PROXY || "").trim();
+  const PK1 = (process.env.MS_EOA1_PK || "").trim();
+  const PK2 = (process.env.MS_EOA2_PK || "").trim();
 
   if (!/^https?:\/\//.test(L2_RPC)) throw new Error("ARBITRUM_SEPOLIA_RPC_URL missing");
   if (![TL, MINI, L2TOK].every(isAddr)) throw new Error("One of TL/MINI/L2_TOKEN_PROXY invalid");
@@ -77,9 +128,9 @@ async function main() {
   const w1 = new ethers.Wallet(PK1, l2); // owner 1
   const w2 = new ethers.Wallet(PK2, l2); // owner 2
 
-  const tl   = new ethers.Contract(TL, TL_ABI, w1);
+  const tl = new ethers.Contract(TL, TL_ABI, w1);
   const mini = new ethers.Contract(MINI, MINI_ABI, w1);
-  const tok  = new ethers.Contract(L2TOK, TOKEN_ABI, w1);
+  const tok = new ethers.Contract(L2TOK, TOKEN_ABI, w1);
 
   console.log("=== CONFIGURE GEMSTEP SOURCES VIA L2 TIMELOCK ===");
   console.log("Network   : arbitrumSepolia");
@@ -94,8 +145,8 @@ async function main() {
   const EXECUTOR_ROLE = await tl.EXECUTOR_ROLE();
   const proposerIsMini = await tl.hasRole(PROPOSER_ROLE, MINI);
   const executorIsMini = await tl.hasRole(EXECUTOR_ROLE, MINI);
-  const executorOpen   = await tl.hasRole(EXECUTOR_ROLE, ethers.ZeroAddress);
-  const minDelay       = await tl.getMinDelay();
+  const executorOpen = await tl.hasRole(EXECUTOR_ROLE, ethers.ZeroAddress);
+  const minDelay = await tl.getMinDelay();
 
   console.log("\n[Timelock roles]");
   console.log("proposer(mini):", proposerIsMini);
@@ -108,6 +159,7 @@ async function main() {
   }
 
   // --- Token role check: does TL have PARAMETER_ADMIN_ROLE? ---
+  // Your storage uses keccak256("PARAMETER_ADMIN_ROLE"), ethers.id matches this.
   const PARAM_ROLE = ethers.id("PARAMETER_ADMIN_ROLE");
   const DEFAULT_ADMIN_ROLE = await tok.DEFAULT_ADMIN_ROLE();
   const tlIsParamAdmin = await tok.hasRole(PARAM_ROLE, TL);
@@ -121,111 +173,90 @@ async function main() {
   if (!tlIsParamAdmin) {
     throw new Error(
       "Timelock does NOT have PARAMETER_ADMIN_ROLE on the L2 token. " +
-      "Grant PARAMETER_ADMIN_ROLE(TL) from your deployment/admin path first."
+        "Grant PARAMETER_ADMIN_ROLE(TL) from your deployment/admin path first."
     );
+  }
+
+  if (!executorOpen && !executorIsMini) {
+    throw new Error("No permission to execute: Timelock EXECUTOR_ROLE is neither OPEN nor granted to Mini.");
   }
 
   const tokIface = new ethers.Interface(TOKEN_ABI);
 
-  // === MAIN LOOP: one Timelock op per source ===
   for (const [source, requiresProof, requiresAtt] of SOURCES) {
     console.log("\n--------------------------------------------------");
     console.log(`Configuring source: "${source}" (proof=${requiresProof}, att=${requiresAtt})`);
 
-    // Build call data: token.configureSource(source, requiresProof, requiresAtt)
-    const data = tokIface.encodeFunctionData("configureSource", [
-      source,
-      requiresProof,
-      requiresAtt,
-    ]);
-
+    const data = tokIface.encodeFunctionData("configureSource", [source, requiresProof, requiresAtt]);
     const predecessor = ethers.ZeroHash;
     const value = 0n;
-    const salt = ethers.keccak256(
-      ethers.toUtf8Bytes(`CONFIG_SOURCE:${source.toLowerCase()}`)
-    );
 
+    // Salt should be stable across reruns.
+    // Include token+source to avoid collisions if you ever reuse this script across deployments.
+    const salt = ethers.keccak256(ethers.toUtf8Bytes(`CONFIG_SOURCE:${L2TOK.toLowerCase()}:${source.toLowerCase()}`));
     const opId = await tl.hashOperation(L2TOK, value, data, predecessor, salt);
+
     console.log("operationId:", opId);
     console.log("salt       :", salt);
 
-    // ---- Dry-run: simulate call as Timelock ----
+    // ---- Dry-run
     console.log("\n[Dryrun] eth_call from TL to token.configureSource…");
     const dry = await ethCallFrom(l2, TL, L2TOK, data);
     if (!dry.ok) {
       console.error("Dryrun REVERTED. Reason:", dry.error);
       console.error("⚠️  Skipping this source; fix roles / preconditions then retry.");
       continue;
-    } else {
-      console.log("Dryrun OK – call would succeed when executed by TL.");
     }
+    console.log("Dryrun OK – call would succeed when executed by TL.");
 
-    // ---- SCHEDULE via Mini ----
+    // ---- Schedule via Mini
     const already = await tl.isOperation(opId);
     if (!already) {
       console.log("\n[Schedule] via MiniMultisig");
 
-      const schedCalldata = tl.interface.encodeFunctionData("schedule", [
-        L2TOK,
-        value,
-        data,
-        predecessor,
-        salt,
-        minDelay,
-      ]);
+      const schedCalldata = tl.interface.encodeFunctionData("schedule", [L2TOK, value, data, predecessor, salt, minDelay]);
 
       console.log("Proposing schedule() from owner1…");
-      const tx1 = await mini.propose(TL, 0, schedCalldata);
-      console.log("  tx hash:", tx1.hash);
-      await tx1.wait();
+      const { id, txHash } = await proposeWithId(mini, TL, 0, schedCalldata);
+      console.log("  propose tx:", txHash, "mini id:", id.toString());
 
-      const id = await mini.txCount();
-      console.log("Mini tx id:", id.toString(), "- approving with owner2…");
-      await mini.connect(w2).approve(id);
+      const owner2 = await w2.getAddress();
+      const didApprove = await approveIfNeeded(mini, id, owner2, w2);
+      console.log(didApprove ? "Approved by owner2." : "Owner2 already approved.");
+
       await sleep(500);
 
       const t1 = await mini.getTx(id);
       console.log("Mini tx state → target:", t1.target, "approvals:", t1.approvals, "executed:", t1.executed);
 
       console.log("Executing schedule() via Mini (owner1)…");
-      const ex1 = await mini.execute(id);
-      console.log("  execute tx:", ex1.hash);
-      await ex1.wait();
-      console.log("✓ schedule() submitted via Mini.");
+      const txE = await mini.execute(id);
+      console.log("  execute tx:", txE.hash);
+      const rcE = await txE.wait();
+      console.log("✓ schedule() submitted via Mini. status:", rcE.status);
+
+      // sanity: timelock should now know the operation
+      const isOpNow = await tl.isOperation(opId).catch(() => false);
+      if (!isOpNow) {
+        console.warn("⚠️  Timelock still reports !isOperation(opId). Verify schedule tx input/salt.");
+      }
     } else {
       console.log("\nℹ️ Operation already exists on TL; skipping schedule.");
     }
 
-    // ---- Wait until ready ----
-    process.stdout.write("Waiting for operation to be ready");
-    for (;;) {
-      const ready = await tl.isOperationReady(opId);
-      const done  = await tl.isOperationDone(opId);
-      if (done) {
-        console.log("\nℹ️ Operation already done; skipping execute.");
-        break;
-      }
-      if (ready) {
-        console.log("\nReady.");
-        break;
-      }
-      process.stdout.write(".");
-      await sleep(2000);
+    // ---- Wait until ready
+    const state = await waitTimelockReady(tl, opId, { pollMs: 2000, timeoutMs: 5 * 60_000 });
+    if (state === "timeout") {
+      console.log("⚠️  Timed out waiting; moving to next source.");
+      continue;
     }
-
-    // ---- EXECUTE (open or via Mini) ----
-    const execCalldata = tl.interface.encodeFunctionData("execute", [
-      L2TOK,
-      value,
-      data,
-      predecessor,
-      salt,
-    ]);
-
-    if (await tl.isOperationDone(opId)) {
+    if (state === "done") {
       console.log("ℹ️ Already executed; move to next source.");
       continue;
     }
+
+    // ---- Execute
+    const execCalldata = tl.interface.encodeFunctionData("execute", [L2TOK, value, data, predecessor, salt]);
 
     console.log("\n[Execute] configureSource via Timelock");
     try {
@@ -235,25 +266,19 @@ async function main() {
         console.log("  tx hash:", tx.hash);
         await tx.wait();
         console.log("✓ execute() done (direct EOA).");
-      } else if (executorIsMini) {
+      } else {
         console.log("Executor is MINI. Executing via Mini…");
 
-        const tx2 = await mini.propose(TL, 0, execCalldata);
-        console.log("  propose tx:", tx2.hash);
-        await tx2.wait();
-        const id2 = await mini.txCount();
+        const { id: id2, txHash: p2 } = await proposeWithId(mini, TL, 0, execCalldata);
+        console.log("  propose tx:", p2, "mini id:", id2.toString());
 
-        await mini.connect(w2).approve(id2);
+        const owner2 = await w2.getAddress();
+        const didApprove2 = await approveIfNeeded(mini, id2, owner2, w2);
+        console.log(didApprove2 ? "Approved by owner2." : "Owner2 already approved.");
+
         await sleep(500);
         const t2 = await mini.getTx(id2);
-        console.log(
-          "Mini exec tx → target:",
-          t2.target,
-          "approvals:",
-          t2.approvals,
-          "executed:",
-          t2.executed
-        );
+        console.log("Mini exec tx → target:", t2.target, "approvals:", t2.approvals, "executed:", t2.executed);
 
         console.log("[Precheck] eth_call TL.execute from MINI (should succeed)...");
         const pre = await ethCallFrom(l2, MINI, TL, execCalldata);
@@ -266,27 +291,28 @@ async function main() {
         console.log("  mini.execute tx:", ex2.hash);
         await ex2.wait();
         console.log("✓ execute() done via Mini.");
-      } else {
-        throw new Error(
-          "No permission to execute: Timelock EXECUTOR_ROLE is neither OPEN nor granted to Mini."
-        );
       }
     } catch (e) {
       console.error("❌ execute flow failed:", e?.reason || e?.shortMessage || e?.message || e);
-      const isOp    = await tl.isOperation(opId).catch(() => false);
+      const isOp = await tl.isOperation(opId).catch(() => false);
       const isReady = await tl.isOperationReady(opId).catch(() => false);
-      const isDone  = await tl.isOperationDone(opId).catch(() => false);
+      const isDone = await tl.isOperationDone(opId).catch(() => false);
       console.log("State: isOp=", isOp, "isReady=", isReady, "isDone=", isDone);
       throw e;
     }
 
-    console.log(`✅ configureSource("${source}", ${requiresProof}, ${requiresAtt}) applied via TL.`);
+    const doneNow = await tl.isOperationDone(opId).catch(() => false);
+    if (!doneNow) {
+      console.warn("⚠️  Timelock does not report DONE after execute. Check receipts/logs.");
+    } else {
+      console.log(`✅ configureSource("${source}", ${requiresProof}, ${requiresAtt}) applied via TL.`);
+    }
   }
 
   console.log("\n🎉 All source configuration operations processed.");
 }
 
 main().catch((e) => {
-  console.error("❌ configure_sources_via_l2_timelock failed:", e);
+  console.error("❌ configure_sources_via_l2_timelock failed:", e?.reason || e?.shortMessage || e?.message || e);
   process.exit(1);
 });
